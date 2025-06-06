@@ -1,3 +1,4 @@
+pywallet_build_env
 .venv
 .zencoder
 __pycache__
@@ -8,4 +9,3 @@ pywallet
 analyze_wallets.py
 extract_keys_detailed.py
 main.py
-pywallet_build_env
