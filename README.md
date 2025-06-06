@@ -25,8 +25,8 @@ This is an improved version of pywallet with full Python 3 support and enhanced 
 ### Quick Setup
 ```bash
 # Make build script executable and run it
-chmod +x build.sh
-./build.sh
+chmod +x install.sh
+./install.sh
 ```
 
 ### Manual Setup
@@ -146,13 +146,13 @@ When using `--output_keys`, the text file contains:
 ```bash
 # Recreate virtual environment
 rm -rf pywallet_build_env
-./build.sh
+./install.sh
 ```
 
 ### Permission Issues
 ```bash
 # Make scripts executable
-chmod +x build.sh run_pywallet.sh
+chmod +x install.sh run_pywallet.sh
 ```
 
 ### Missing Dependencies
