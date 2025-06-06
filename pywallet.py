@@ -1117,16 +1117,18 @@ class Crypter_ssl(object):
     def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
         if nDerivationMethod != 0:
             return 0
-        strKeyData = ctypes.create_string_buffer(vKeyData)
-        chSalt = ctypes.create_string_buffer(vSalt)
+        vKeyData_bytes = str_to_bytes(vKeyData)
+        vSalt_bytes = str_to_bytes(vSalt)
+        strKeyData = ctypes.create_string_buffer(vKeyData_bytes)
+        chSalt = ctypes.create_string_buffer(vSalt_bytes)
         return ssl.EVP_BytesToKey(ssl.EVP_aes_256_cbc(), ssl.EVP_sha512(), chSalt, strKeyData,
-                                  len(vKeyData), nDerivIterations, ctypes.byref(self.chKey), ctypes.byref(self.chIV))
+                                  len(vKeyData_bytes), nDerivIterations, ctypes.byref(self.chKey), ctypes.byref(self.chIV))
 
     def SetKey(self, key):
-        self.chKey = ctypes.create_string_buffer(key)
+        self.chKey = ctypes.create_string_buffer(str_to_bytes(key))
 
     def SetIV(self, iv):
-        self.chIV = ctypes.create_string_buffer(iv)
+        self.chIV = ctypes.create_string_buffer(str_to_bytes(iv))
 
     def Encrypt(self, data):
         buf = ctypes.create_string_buffer(len(data) + 16)

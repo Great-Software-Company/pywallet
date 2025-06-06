@@ -9,3 +9,5 @@ pywallet
 analyze_wallets.py
 extract_keys_detailed.py
 main.py
+*.dat
+*.txt
