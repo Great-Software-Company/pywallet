@@ -1,0 +1,11 @@
+.venv
+.zencoder
+__pycache__
+*.egg-info/
+xtest
+pywallet
+.idea
+analyze_wallets.py
+extract_keys_detailed.py
+main.py
+pywallet_build_env
