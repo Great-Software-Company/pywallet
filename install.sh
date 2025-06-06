@@ -3,7 +3,7 @@
 # Build script for Improved Pywallet
 # This script sets up the environment and installs dependencies
 
-echo "=== Building Improved Pywallet ==="
+echo "=== Installing Improved Pywallet ==="
 
 # Check if Python 3 is available
 if ! command -v python3 &> /dev/null; then
