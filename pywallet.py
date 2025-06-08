@@ -4058,6 +4058,26 @@ def retrieve_last_pywallet_md5():
     md5_last_pywallet = [True, md5_onlinefile('https://raw.github.com/jackjack-jj/pywallet/master/pywallet.py')]
 
 
+def find_wallet_files(directory):
+    """
+    Find all wallet.dat files in the specified directory and its subdirectories
+    
+    Args:
+        directory (str): Directory to search in
+        
+    Returns:
+        list: List of full paths to wallet.dat files
+    """
+    wallet_files = []
+    
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.lower() == "wallet.dat":
+                wallet_files.append(os.path.join(root, file))
+    
+    return wallet_files
+
+
 from optparse import OptionParser
 import subprocess
 
@@ -4575,7 +4595,7 @@ if __name__ == '__main__':
                       help="REMOVED OPTION: put full path in the --wallet option")
 
     parser.add_option("-w", "--wallet", dest="walletfile",
-                      help="wallet filename (defaults to wallet.dat)",
+                      help="wallet filename or directory (if directory is specified, will automatically find wallet.dat files)",
                       default="")
 
     parser.add_option("--label", dest="label",
@@ -4610,7 +4630,7 @@ if __name__ == '__main__':
                       help="recover your deleted keys, use with recov_size and recov_device")
 
     parser.add_option("--recov_device", dest="recov_device",
-                      help="device to read (e.g. /dev/sda1 or E: or a file)")
+                      help="device to read (e.g. /dev/sda1 or E: or a file), or directory (will automatically find wallet.dat files)")
 
     parser.add_option("--recov_size", dest="recov_size",
                       help="number of bytes to read (e.g. 20Mo, 50Gio, 20MB, 50GB, 1TB, 2TiB)")
@@ -4691,6 +4711,25 @@ if __name__ == '__main__':
         device = options.recov_device
         if len(device) in [2, 3] and device[1] == ':':
             device = "\\\\.\\" + device
+            
+        # Check if the device is a directory
+        if os.path.isdir(device):
+            # Search for wallet.dat files in the directory
+            wallet_files = find_wallet_files(device)
+            
+            if not wallet_files:
+                print("No wallet.dat files found in directory %s" % repr(os.path.realpath(device)))
+                print("Continuing with recovery from the directory as a device...")
+            else:
+                if len(wallet_files) > 1:
+                    print("Found multiple wallet.dat files:")
+                    for i, wf in enumerate(wallet_files):
+                        print(f"  [{i+1}] {wf}")
+                    print("\nUsing the first wallet file found: %s" % wallet_files[0])
+                
+                device = wallet_files[0]
+                print(f"Using wallet file: {device}")
+                
         size = read_device_size(options.recov_size)
 
         # Get passphrases for decryption
@@ -4707,7 +4746,7 @@ if __name__ == '__main__':
         print("\nStarting recovery.")
 
         # Check if device is a wallet file (only if it's named wallet.dat)
-        if os.path.isfile(device) and os.path.basename(device) == 'wallet.dat':
+        if os.path.isfile(device) and os.path.basename(device).lower() == 'wallet.dat':
             print("Detected wallet file. Attempting to extract keys directly from wallet...")
             try:
                 # Try to read the wallet file directly
@@ -4846,9 +4885,30 @@ if __name__ == '__main__':
     db_dir = ""
     if options.walletfile:
         if options.datadir: options.walletfile = options.datadir + os.path.sep + options.walletfile
+        
+        # Check if the walletfile is actually a directory
+        if os.path.isdir(options.walletfile):
+            # Search for wallet.dat files in the directory
+            wallet_files = find_wallet_files(options.walletfile)
+            
+            if not wallet_files:
+                print("ERROR: No wallet.dat files found in directory %s" % repr(os.path.realpath(options.walletfile)))
+                exit()
+            
+            if len(wallet_files) > 1:
+                print("Found multiple wallet.dat files:")
+                for i, wf in enumerate(wallet_files):
+                    print(f"  [{i+1}] {wf}")
+                print("\nUsing the first wallet file found: %s" % wallet_files[0])
+            
+            options.walletfile = wallet_files[0]
+            print(f"Using wallet file: {options.walletfile}")
+        
+        # Check if the file exists
         if not os.path.isfile(options.walletfile):
             print("ERROR: wallet file %s can't be found" % repr(os.path.realpath(options.walletfile)))
             exit()
+            
         db_dir, wallet_name = os.path.split(os.path.realpath(options.walletfile))
 
     if not (options.key_balance is None):
