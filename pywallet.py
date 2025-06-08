@@ -105,9 +105,17 @@ def chrsix(x):
 
 
 def str_to_bytes(k):
-    if k.__class__ == str and not hasattr(k, 'decode'):
-        return bytes(k, 'ascii')
-    return k
+    if k is None:
+        return b''
+    if isinstance(k, int):
+        # Convert integer to string then to bytes
+        return str(k).encode('ascii')
+    if isinstance(k, str) and not hasattr(k, 'decode'):
+        return k.encode('ascii')
+    if isinstance(k, bytes):
+        return k
+    # For any other type, convert to string first then to bytes
+    return str(k).encode('ascii')
 
 
 def bytes_to_str(k):
@@ -1089,12 +1097,18 @@ class Crypter_pycrypto(object):
     def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
         if nDerivationMethod != 0:
             return 0
-        data = str_to_bytes(vKeyData) + vSalt
-        for i in xrange(nDerivIterations):
-            data = hashlib.sha512(data).digest()
-        self.SetKey(data[0:32])
-        self.SetIV(data[32:32 + 16])
-        return len(data)
+        try:
+            data = str_to_bytes(vKeyData) + str_to_bytes(vSalt)
+            for i in xrange(nDerivIterations):
+                data = hashlib.sha512(data).digest()
+            self.SetKey(data[0:32])
+            self.SetIV(data[32:32 + 16])
+            return len(data)
+        except Exception as e:
+            print(f"Error in Crypter_pycrypto.SetKeyFromPassphrase: {str(e)}")
+            print(f"vKeyData type: {type(vKeyData)}, value: {vKeyData}")
+            print(f"vSalt type: {type(vSalt)}, value: {vSalt}")
+            return 0
 
     def SetKey(self, key):
         self.chKey = key
@@ -1117,12 +1131,18 @@ class Crypter_ssl(object):
     def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
         if nDerivationMethod != 0:
             return 0
-        vKeyData_bytes = str_to_bytes(vKeyData)
-        vSalt_bytes = str_to_bytes(vSalt)
-        strKeyData = ctypes.create_string_buffer(vKeyData_bytes)
-        chSalt = ctypes.create_string_buffer(vSalt_bytes)
-        return ssl.EVP_BytesToKey(ssl.EVP_aes_256_cbc(), ssl.EVP_sha512(), chSalt, strKeyData,
-                                  len(vKeyData_bytes), nDerivIterations, ctypes.byref(self.chKey), ctypes.byref(self.chIV))
+        try:
+            vKeyData_bytes = str_to_bytes(vKeyData)
+            vSalt_bytes = str_to_bytes(vSalt)
+            strKeyData = ctypes.create_string_buffer(vKeyData_bytes)
+            chSalt = ctypes.create_string_buffer(vSalt_bytes)
+            return ssl.EVP_BytesToKey(ssl.EVP_aes_256_cbc(), ssl.EVP_sha512(), chSalt, strKeyData,
+                                      len(vKeyData_bytes), nDerivIterations, ctypes.byref(self.chKey), ctypes.byref(self.chIV))
+        except Exception as e:
+            print(f"Error in SetKeyFromPassphrase: {str(e)}")
+            print(f"vKeyData type: {type(vKeyData)}, value: {vKeyData}")
+            print(f"vSalt type: {type(vSalt)}, value: {vSalt}")
+            return 0
 
     def SetKey(self, key):
         self.chKey = ctypes.create_string_buffer(str_to_bytes(key))
@@ -1166,12 +1186,18 @@ class Crypter_pure(object):
     def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
         if nDerivationMethod != 0:
             return 0
-        data = str_to_bytes(vKeyData) + vSalt
-        for i in xrange(nDerivIterations):
-            data = hashlib.sha512(data).digest()
-        self.SetKey(data[0:32])
-        self.SetIV(data[32:32 + 16])
-        return len(data)
+        try:
+            data = str_to_bytes(vKeyData) + str_to_bytes(vSalt)
+            for i in xrange(nDerivIterations):
+                data = hashlib.sha512(data).digest()
+            self.SetKey(data[0:32])
+            self.SetIV(data[32:32 + 16])
+            return len(data)
+        except Exception as e:
+            print(f"Error in Crypter_pure.SetKeyFromPassphrase: {str(e)}")
+            print(f"vKeyData type: {type(vKeyData)}, value: {vKeyData}")
+            print(f"vSalt type: {type(vSalt)}, value: {vSalt}")
+            return 0
 
     def SetKey(self, key):
         self.chKey = [ordsix(i) for i in key]
@@ -2033,12 +2059,20 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.'):
                 sys.stdout.flush()
                 failures_in_a_row = 0
                 #				print("SKFP params:", pp, mk.salt, mk.iterations, mk.method)
-                res = crypter.SetKeyFromPassphrase(pp, mk.salt, mk.iterations, mk.method)
-                if res == 0:
-                    print("Unsupported derivation method")
-                    sys.exit(1)
-                masterkey = crypter.Decrypt(mk.encrypted_key)
-                crypter.SetKey(masterkey)
+                try:
+                    # Ensure passphrase is properly converted
+                    passphrase = str(pp) if not isinstance(pp, (str, bytes)) else pp
+                    res = crypter.SetKeyFromPassphrase(passphrase, mk.salt, mk.iterations, mk.method)
+                    if res == 0:
+                        print("Unsupported derivation method")
+                        continue  # Try next passphrase instead of exiting
+                    masterkey = crypter.Decrypt(mk.encrypted_key)
+                    crypter.SetKey(masterkey)
+                except Exception as e:
+                    print(f"\nError processing passphrase: {str(e)}")
+                    print(f"Passphrase type: {type(pp)}, value: {pp}")
+                    print(f"Salt type: {type(mk.salt)}, iterations: {mk.iterations}, method: {mk.method}")
+                    continue  # Try next passphrase
                 for ck in list_of_possible_keys:
                     if cpt % 10 == 9 and failures_in_a_row == 0:
                         sys.stdout.write('.')
