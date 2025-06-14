@@ -4947,9 +4947,22 @@ if __name__ == '__main__':
         exit(0)
 
     if options.recover:
-        if options.recov_size is None or options.recov_device is None:
-            print("You must provide the device and the number of bytes to read")
+        if options.recov_device is None:
+            print("You must provide the device to recover from (--recov_device)")
             exit(0)
+            
+        # Make recov_size optional if recov_device is a file
+        if options.recov_size is None:
+            if os.path.isfile(options.recov_device):
+                # If it's a file, use the file size
+                file_size = os.path.getsize(options.recov_device)
+                print(f"No size specified. Using full file size: {file_size} bytes ({file_size/1024/1024:.2f} MB)")
+                options.recov_size = str(file_size) + "B"
+            else:
+                # If it's not a file, we still need the size
+                print("You must provide the number of bytes to read (--recov_size)")
+                print("The --recov_size parameter is only optional when --recov_device is a file")
+                exit(0)
         if options.recov_outputdir is None and options.output_keys is None:
             print(
                 "You must provide either --recov_outputdir (for wallet creation) or --output_keys (for text file output)")
