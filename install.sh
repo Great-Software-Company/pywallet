@@ -14,7 +14,7 @@ fi
 echo "✓ Python 3 found: $(python3 --version)"
 
 # Check if we're in the right directory
-if [ ! -f "pywallet.py" ]; then
+if [ ! -f "pywallet.py" ] && [ ! -f "pywallet/pywallet.py" ]; then
     echo "Error: pywallet.py not found. Please run this script from the project root."
     exit 1
 fi
@@ -51,13 +51,23 @@ fi
 
 # Test the installation
 echo "Testing installation..."
-python3 pywallet.py --help > /dev/null 2>&1
+
+# Determine which pywallet.py to use
+if [ -f "pywallet.py" ]; then
+    PYWALLET_PATH="pywallet.py"
+elif [ -f "pywallet/pywallet.py" ]; then
+    PYWALLET_PATH="pywallet/pywallet.py"
+fi
+
+python3 "$PYWALLET_PATH" --help > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     echo "✓ Build successful!"
     echo ""
     echo "To use the improved pywallet:"
-    echo "1. Activate the virtual environment: source pywallet_build_env/bin/activate"
-    echo "2. Run pywallet: python3 pywallet.py [options]"
+    echo "1. Use the run_pywallet.sh script: ./run_pywallet.sh [options]"
+    echo "   or"
+    echo "2. Activate the virtual environment: source pywallet_build_env/bin/activate"
+    echo "3. Run pywallet: python3 $PYWALLET_PATH [options]"
     echo ""
     echo "New features:"
     echo "- Full Python 3 support"

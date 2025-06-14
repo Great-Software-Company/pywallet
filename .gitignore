@@ -11,3 +11,16 @@ extract_keys_detailed.py
 main.py
 *.dat
 *.txt
+*.zip
+btcrecover
+bitcoin_data/
+btcrecover_env/
+extract_keys_env/
+extract_limited_keys.py
+extract_master_key.py
+extract_private_keys.py
+extract_wallet_safe.py
+extract_with_fixed_padding.py
+pywallet_env/
+wallet_info.py
+wallets/

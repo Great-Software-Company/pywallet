@@ -93,6 +93,130 @@ import os.path
 import platform
 
 
+# btcwif library for WIF format conversion
+# Adapted from https://github.com/crcarlo/btcwif
+def sha256_btcwif(arg):
+    ''' Return a sha256 hash of a hex string '''
+    byte_array = bytearray.fromhex(arg)
+    m = hashlib.sha256()
+    m.update(byte_array)
+    return m.hexdigest()
+
+def b58encode_btcwif(hex_string):
+    ''' Return a base58 encoded string from hex string '''
+    alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+    num = int(hex_string, 16)
+    encode = ""
+    base_count = len(alphabet)
+    while (num > 0):
+        num, res = divmod(num, base_count)
+        encode = alphabet[res] + encode
+    return encode
+
+def b58decode_btcwif(v):
+    ''' Decode a Base58 encoded string as an integer and return a hex string '''
+    alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+    if not isinstance(v, str):
+        v = v.decode('ascii')
+    decimal = 0
+    for char in v:
+        decimal = decimal * 58 + alphabet.index(char)
+    return hex(decimal)[2:]  # (remove "0x" prefix)
+
+def privToWif(priv, verbose=False):
+    ''' Produce a WIF from a private key in the form of an hex string '''
+    # 1 - Take a private key
+    _priv = priv.lower()  # just for aesthetics
+    if verbose: print("Private key: " + _priv)
+    
+    # 2 - Add a 0x80 byte in front of it
+    priv_add_x80 = "80" + _priv
+    if verbose: print("Private with x80 at beginning: " + priv_add_x80)
+    
+    # 3 - Perform SHA-256 hash on the extended key
+    first_sha256 = sha256_btcwif(priv_add_x80)
+    if verbose: print("sha256: " + first_sha256.upper())
+    
+    # 4 - Perform SHA-256 hash on result of SHA-256 hash
+    seconf_sha256 = sha256_btcwif(first_sha256)
+    if verbose: print("sha256: " + seconf_sha256.upper())
+    
+    # 5 - Take the first 4 bytes of the second SHA-256 hash, this is the checksum
+    first_4_bytes = seconf_sha256[0:8]
+    if verbose: print("First 4 bytes: " + first_4_bytes)
+    
+    # 6 - Add the 4 checksum bytes from point 5 at the end of the extended key from point 2
+    resulting_hex = priv_add_x80 + first_4_bytes
+    if verbose: print("Resulting WIF in HEX: " + resulting_hex)
+    
+    # 7 - Convert the result from a byte string into a base58 string using Base58Check encoding. This is the Wallet Import Format
+    result_wif = b58encode_btcwif(resulting_hex)
+    if verbose: print("Resulting WIF: " + result_wif)
+    
+    return result_wif
+
+def wifToPriv(wif, verbose=False):
+    ''' Produce the private ECDSA key in the form of a hex string from a WIF string '''
+    if not wifChecksum(wif): raise Exception('The WIF is not correct (does not pass checksum)')
+    
+    # 1 - Take a Wallet Import Format string
+    if verbose: print("WIF: " + wif)
+    
+    # 2 - Convert it to a byte string using Base58Check encoding
+    byte_str = b58decode_btcwif(wif)
+    if verbose: print("WIF base58 decoded: " + byte_str)
+    
+    # 3 - Drop the last 4 checksum bytes from the byte string
+    byte_str_drop_last_4bytes = byte_str[0:-8]
+    if verbose: print("Decoded WIF drop last 4 bytes: " + byte_str_drop_last_4bytes)
+    
+    # 4 - Drop the first byte
+    byte_str_drop_first_byte = byte_str_drop_last_4bytes[2:]
+    if verbose: print("ECDSA private key: " + byte_str_drop_first_byte)
+    
+    return byte_str_drop_first_byte
+
+def wifChecksum(wif, verbose=False):
+    ''' Returns True if the WIF is positive to the checksum, False otherwise '''
+    # 1 - Take the Wallet Import Format string
+    if verbose: print("WIF: " + wif)
+    
+    # 2 - Convert it to a byte string using Base58Check encoding
+    byte_str = b58decode_btcwif(wif)
+    if verbose: print("WIF base58 decoded: " + byte_str)
+    
+    # 3 - Drop the last 4 checksum bytes from the byte string
+    byte_str_drop_last_4bytes = byte_str[0:-8]
+    if verbose: print("Decoded WIF drop last 4 bytes: " + byte_str_drop_last_4bytes)
+    
+    # 3 - Perform SHA-256 hash on the shortened string
+    sha_256_1 = sha256_btcwif(byte_str_drop_last_4bytes)
+    if verbose: print("SHA256 1: " + sha_256_1)
+    
+    # 4 - Perform SHA-256 hash on result of SHA-256 hash
+    sha_256_2 = sha256_btcwif(sha_256_1)
+    if verbose: print("SHA256 2: " + sha_256_2)
+    
+    # 5 - Take the first 4 bytes of the second SHA-256 hash, this is the checksum
+    first_4_bytes = sha_256_2[0:8]
+    if verbose: print("First 4 bytes: " + first_4_bytes)
+    
+    # 6 - Make sure it is the same, as the last 4 bytes from point 2
+    last_4_bytes_WIF = byte_str[-8:]
+    if verbose: print("Last 4 bytes of WIF: " + last_4_bytes_WIF)
+    
+    bytes_check = False
+    if first_4_bytes == last_4_bytes_WIF: bytes_check = True
+    if verbose: print("4 bytes check: " + str(bytes_check))
+    
+    # 7 - If they are, and the byte string from point 2 starts with 0x80 (0xef for testnet addresses), then there is no error.
+    check_sum = False
+    if bytes_check and byte_str[0:2] == "80": check_sum = True
+    if verbose: print("Checksum: " + str(check_sum))
+    
+    return check_sum
+
+
 def ordsix(x):
     if x.__class__ == int: return x
     return ord(x)
@@ -3531,6 +3655,10 @@ def keyinfo(sec, network=None, print_info=False, force_compressed=None):
                 print("P2WPKH unavailable:  unknown network SegWit HRP")
         if network.wif_prefix != None:
             print("Privkey:             %s" % wif)
+            # Also display the WIF using the btcwif library
+            hex_secret = bytes_to_str(binascii.hexlify(secret))
+            btcwif_privkey = privToWif(hex_secret)
+            print("WIF (btcwif):        %s" % btcwif_privkey)
         else:
             print("Privkey unavailable: unknown network WIF prefix")
         print("Hexprivkey:          %s" % bytes_to_str(binascii.hexlify(secret)))
@@ -3552,7 +3680,29 @@ def keyinfo(sec, network=None, print_info=False, force_compressed=None):
     return r
 
 
+def wif_to_privkey(wif, verbose=False):
+    """Convert a WIF format private key to a hex private key using the btcwif library"""
+    try:
+        priv = wifToPriv(wif, verbose)
+        return priv
+    except Exception as e:
+        print(f"Error converting WIF to private key: {e}")
+        return None
+
 def importprivkey(db, sec, label, reserve, verbose=True):
+    # Check if the input is a WIF format key
+    if len(sec) > 40 and len(sec) < 60:  # Typical WIF length
+        try:
+            # Try to convert from WIF to hex private key
+            hex_privkey = wif_to_privkey(sec)
+            if hex_privkey:
+                if verbose:
+                    print(f"Converted WIF to hex private key: {hex_privkey}")
+                sec = hex_privkey
+        except:
+            # If conversion fails, continue with original input
+            pass
+    
     k = keyinfo(sec, network, verbose)
     secret = k.secret
     private_key = k.private_key
@@ -4660,6 +4810,15 @@ if __name__ == '__main__':
     parser.add_option("--balance", dest="key_balance",
                       help="prints balance of KEY_BALANCE")
 
+    parser.add_option("--priv2wif", dest="priv2wif",
+                      help="convert a private key in hex format to WIF format")
+
+    parser.add_option("--wif2priv", dest="wif2priv",
+                      help="convert a WIF format private key to hex format")
+
+    parser.add_option("--wifcheck", dest="wifcheck",
+                      help="check if a WIF format private key is valid")
+
     parser.add_option("--recover", dest="recover", action="store_true",
                       help="recover your deleted keys, use with recov_size and recov_device")
 
@@ -4947,6 +5106,31 @@ if __name__ == '__main__':
 
     if not (options.key_balance is None):
         print(balance(balance_site, options.key_balance))
+        exit(0)
+        
+    # Handle btcwif options
+    if not (options.priv2wif is None):
+        try:
+            wif = privToWif(options.priv2wif, verbose=True)
+            print("\nWIF: %s" % wif)
+        except Exception as e:
+            print("Error converting private key to WIF: %s" % str(e))
+        exit(0)
+        
+    if not (options.wif2priv is None):
+        try:
+            priv = wifToPriv(options.wif2priv, verbose=True)
+            print("\nPrivate key (hex): %s" % priv)
+        except Exception as e:
+            print("Error converting WIF to private key: %s" % str(e))
+        exit(0)
+        
+    if not (options.wifcheck is None):
+        try:
+            is_valid = wifChecksum(options.wifcheck, verbose=True)
+            print("\nWIF checksum valid: %s" % str(is_valid))
+        except Exception as e:
+            print("Error checking WIF: %s" % str(e))
         exit(0)
 
     network = network_bitcoin
