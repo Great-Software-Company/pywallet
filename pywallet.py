@@ -416,8 +416,8 @@ wallet_name = ""
 ko = 1e3
 kio = 1024
 Mo = 1e6
-Mio = 1024 ** 2
-Go = 1e9
+MB = 1024 ** 2
+GB = 1e9
 Gio = 1024 ** 3
 To = 1e12
 Tio = 1024 ** 4
@@ -1998,7 +1998,7 @@ def search_patterns_on_disk(device, size, inc, patternlist):  # inc must be high
     writeProgressEvery = 100 * Mo
     while i < int(size) and (lendataloaded != 0 or lendataloaded == None):
         if int(i // writeProgressEvery) != int((i + inc) // writeProgressEvery):
-            print("%.2f Go read" % (i // 1e9))
+            print("%.2f GB read" % (i // 1e9))
         try:
             datakept = data[-sizetokeep:]
             data = datakept + os.read(fd, inc)
@@ -2161,7 +2161,7 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.'):
         f = open(outputdir + '/pywallet_partial_recovery_%d.json' % ts(), 'w')
         f.write(json.dumps(r))
         f.close()
-        print("\nRead %.1f Go in %.1f minutes\n" % (r['PRFsize'] // 1e9, r['PRFdt'] // 60.0))
+        print("\nRead %.1f GB in %.1f minutes\n" % (r['PRFsize'] // 1e9, r['PRFdt'] // 60.0))
     else:
         prf = device[20:]
         f = open(prf, 'r')
@@ -2169,7 +2169,7 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.'):
         f.close()
         r = json.loads(content)
         device = r['PRFdevice']
-        print("\nLoaded %.1f Go from %s\n" % (r['PRFsize'] // 1e9, device))
+        print("\nLoaded %.1f GB from %s\n" % (r['PRFsize'] // 1e9, device))
 
     try:
         otype = os.O_RDONLY | os.O_BINARY
@@ -2365,8 +2365,8 @@ def first_read(device, size, prekeys, inc=10000):
     ranges = []
 
     while i < int(size):
-        if i % (10 * Mio) > 0 and i % (10 * Mio) <= inc:
-            print("\n%.2f/%.2f Go" % (i // 1e9, size // 1e9))
+        if i % (10 * MB) > 0 and i % (10 * MB) <= inc:
+            print("\n%.2f/%.2f GB" % (i // 1e9, size // 1e9))
             t = ts()
             speed = i // (t - t0)
             ETAts = size // speed + t0
