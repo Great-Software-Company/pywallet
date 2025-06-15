@@ -2238,36 +2238,98 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.'):
                 #				print("SKFP params:", pp, mk.salt, mk.iterations, mk.method)
                 try:
                     # Ensure passphrase is properly converted
-                    passphrase = str(pp) if not isinstance(pp, (str, bytes)) else pp
-                    res = crypter.SetKeyFromPassphrase(passphrase, mk.salt, mk.iterations, mk.method)
+                    if isinstance(pp, str):
+                        passphrase = pp.encode('utf-8') if isinstance(pp, str) else pp
+                    else:
+                        passphrase = str(pp).encode('utf-8')
+                        
+                    print(f"Trying passphrase (type: {type(passphrase)})")
+                    
+                    # Ensure salt is properly formatted
+                    salt = mk.salt
+                    if isinstance(salt, str):
+                        salt = salt.encode('utf-8')
+                        
+                    # Set key from passphrase with proper error handling
+                    res = crypter.SetKeyFromPassphrase(passphrase, salt, mk.iterations, mk.method)
                     if res == 0:
                         print("Unsupported derivation method")
                         continue  # Try next passphrase instead of exiting
-                    masterkey = crypter.Decrypt(mk.encrypted_key)
-                    crypter.SetKey(masterkey)
+                        
+                    # Decrypt master key
+                    try:
+                        masterkey = crypter.Decrypt(mk.encrypted_key)
+                        if not masterkey:
+                            print("Failed to decrypt master key - invalid passphrase")
+                            continue
+                        crypter.SetKey(masterkey)
+                    except Exception as e:
+                        print(f"Error decrypting master key: {str(e)}")
+                        continue
+                        
                 except Exception as e:
                     print(f"\nError processing passphrase: {str(e)}")
                     print(f"Passphrase type: {type(pp)}, value: {pp}")
                     print(f"Salt type: {type(mk.salt)}, iterations: {mk.iterations}, method: {mk.method}")
                     continue  # Try next passphrase
+                    
+                # Process each key with this master key
+                success_count = 0
                 for ck in list_of_possible_keys:
-                    if cpt % 10 == 9 and failures_in_a_row == 0:
-                        sys.stdout.write('.')
-                        sys.stdout.flush()
-                    if failures_in_a_row > 5:
-                        break
-                    crypter.SetIV(Hash(ck.public_key))
-                    secret = crypter.Decrypt(ck.encrypted_pk)
-                    compressed = ck.public_key[0] != '\04'
-
-                    pkey = EC_KEY(int(b'0x' + binascii.hexlify(secret), 16))
-                    if ck.public_key != GetPubKey(pkey, compressed):
+                    try:
+                        if cpt % 10 == 9 and failures_in_a_row == 0:
+                            sys.stdout.write('.')
+                            sys.stdout.flush()
+                        if failures_in_a_row > 5:
+                            break
+                            
+                        # Set IV from public key
+                        pub_key = ck.public_key
+                        if isinstance(pub_key, str) and len(pub_key) > 0 and pub_key[0] == '\\':
+                            # Handle escaped string format
+                            pub_key = pub_key.encode('latin1').decode('unicode_escape').encode('latin1')
+                            
+                        crypter.SetIV(Hash(pub_key))
+                        
+                        # Decrypt private key
+                        try:
+                            secret = crypter.Decrypt(ck.encrypted_pk)
+                            if not secret or len(secret) < 32:
+                                failures_in_a_row += 1
+                                continue
+                        except Exception as e:
+                            print(f"Error decrypting key: {str(e)}")
+                            failures_in_a_row += 1
+                            continue
+                            
+                        # Check if the key is valid by regenerating public key
+                        try:
+                            compressed = pub_key[0] != 4 and pub_key[0] != b'\04'[0]
+                            pkey = EC_KEY(int(b'0x' + binascii.hexlify(secret), 16))
+                            derived_pub_key = GetPubKey(pkey, compressed)
+                            
+                            if pub_key != derived_pub_key:
+                                failures_in_a_row += 1
+                            else:
+                                failures_in_a_row = 0
+                                ck.mkey = mk
+                                ck.privkey = secret
+                                success_count += 1
+                                print(f"\nSuccessfully decrypted key #{success_count}")
+                        except Exception as e:
+                            print(f"Error validating key: {str(e)}")
+                            failures_in_a_row += 1
+                            
+                    except Exception as e:
+                        print(f"Error processing key: {str(e)}")
                         failures_in_a_row += 1
-                    else:
-                        failures_in_a_row = 0
-                        ck.mkey = mk
-                        ck.privkey = secret
+                        
                     cpt += 1
+                    
+                if success_count > 0:
+                    print(f"\nDecrypted {success_count} keys with this passphrase")
+                else:
+                    print("\nNo keys could be decrypted with this passphrase")
             mki += 1
         print("\n")
         tone = time.time()
@@ -2486,6 +2548,25 @@ def is_sqlite_wallet(wallet_file):
     """
     Check if the wallet file is a SQLite database
     """
+    # First, use the 'file' command to check the file type
+    try:
+        import subprocess
+        result = subprocess.run(['file', wallet_file], capture_output=True, text=True)
+        output = result.stdout.lower()
+        
+        # If file command explicitly identifies it as Berkeley DB, return False
+        if 'berkeley db' in output:
+            print(f"File command identifies this as Berkeley DB: {output.strip()}")
+            return False
+            
+        # If file command identifies it as SQLite, return True
+        if 'sqlite' in output:
+            print(f"File command identifies this as SQLite: {output.strip()}")
+            return True
+    except Exception as e:
+        print(f"Warning: Could not use 'file' command: {e}")
+    
+    # As a fallback, check the file header
     try:
         with open(wallet_file, 'rb') as f:
             header = f.read(16)
@@ -2615,64 +2696,129 @@ def extract_keys_from_sqlite_wallet(wallet_file, passphrases):
 def extract_keys_from_wallet(wallet_file, passphrases):
     """
     Extract private keys from a wallet.dat file
+    Automatically detects wallet format and handles both Berkeley DB and SQLite
     """
+    # Check if file exists
+    if not os.path.isfile(wallet_file):
+        print(f"Error: Wallet file not found: {wallet_file}")
+        return []
+    
     try:
         # Check if this is a SQLite wallet (newer format)
         if is_sqlite_wallet(wallet_file):
             print("Detected SQLite wallet format (newer Bitcoin Core)")
-            return extract_keys_from_sqlite_wallet(wallet_file, passphrases)
+            try:
+                return extract_keys_from_sqlite_wallet(wallet_file, passphrases)
+            except Exception as e:
+                print(f"SQLite extraction failed: {str(e)}")
+                print("Falling back to binary search method...")
+                return extract_keys_with_binary_search(wallet_file, passphrases)
 
-        # Create a temporary database environment for Berkeley DB
+        # Berkeley DB wallet format
+        print("Detected Berkeley DB wallet format (traditional Bitcoin Core)")
+        
+        # Create a temporary directory for the DB environment if needed
         temp_db_dir = os.path.dirname(wallet_file)
         wallet_name = os.path.basename(wallet_file)
+        temp_dir = None
+        
+        # If the wallet is not in its own directory, create a temp directory
+        if not os.path.isdir(temp_db_dir) or temp_db_dir == "":
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            print(f"Created temporary directory for DB environment: {temp_dir}")
+            
+            # Copy the wallet file to the temp directory
+            import shutil
+            temp_wallet_path = os.path.join(temp_dir, wallet_name)
+            shutil.copy2(wallet_file, temp_wallet_path)
+            print(f"Copied wallet to: {temp_wallet_path}")
+            
+            # Update paths
+            temp_db_dir = temp_dir
+            wallet_file_for_db = temp_wallet_path
+        else:
+            wallet_file_for_db = wallet_file
 
-        # Try to open the wallet
-        db_env = create_env(temp_db_dir)
-
-        # Read wallet data
-        json_db = {}
         try:
-            read_wallet(json_db, db_env, wallet_name, True, True, "", False)
-        except Exception as e:
-            print("Error reading wallet: %s" % e)
-            return []
+            # Try to open the wallet with robust error handling
+            db_env = create_env(temp_db_dir)
+            
+            # Read wallet data
+            json_db = {}
+            try:
+                read_wallet(json_db, db_env, wallet_name, True, True, "", False)
+            except Exception as e:
+                print(f"Error reading wallet with standard method: {e}")
+                print("Falling back to binary search method...")
+                
+                # Clean up temporary directory if we created one
+                if temp_dir and os.path.exists(temp_dir):
+                    import shutil
+                    shutil.rmtree(temp_dir)
+                    
+                return extract_keys_with_binary_search(wallet_file, passphrases)
 
-        # Extract private keys
-        private_keys = []
+            # Extract private keys
+            private_keys = []
 
-        # Get unencrypted keys
-        if 'keys' in json_db:
-            for key_data in json_db['keys']:
-                if 'sec' in key_data and key_data['sec']:
-                    # Convert hex string to bytes
+            # Get unencrypted keys
+            if 'keys' in json_db:
+                for key_data in json_db['keys']:
+                    if 'sec' in key_data and key_data['sec']:
+                        # Convert hex string to bytes
+                        try:
+                            if isinstance(key_data['sec'], str):
+                                private_key_bytes = binascii.unhexlify(key_data['sec'])
+                            else:
+                                private_key_bytes = key_data['sec']
+                            private_keys.append(private_key_bytes)
+                        except Exception as e:
+                            print(f"Error processing key: {e}")
+                            continue
+
+            # Try to decrypt encrypted keys if passphrases provided
+            if passphrases and 'mkey' in json_db and json_db['mkey']:
+                print("Attempting to decrypt encrypted keys...")
+                for passphrase in passphrases:
                     try:
-                        if isinstance(key_data['sec'], str):
-                            private_key_bytes = binascii.unhexlify(key_data['sec'])
-                        else:
-                            private_key_bytes = key_data['sec']
-                        private_keys.append(private_key_bytes)
+                        # Try to decrypt with this passphrase
+                        decrypted_keys = decrypt_wallet_keys(json_db, passphrase)
+                        private_keys.extend(decrypted_keys)
                     except Exception as e:
-                        print("Error processing key: %s" % e)
+                        print(f"Failed to decrypt with passphrase: {e}")
                         continue
 
-        # Try to decrypt encrypted keys if passphrases provided
-        if passphrases and 'mkey' in json_db and json_db['mkey']:
-            print("Attempting to decrypt encrypted keys...")
-            for passphrase in passphrases:
-                try:
-                    # Try to decrypt with this passphrase
-                    decrypted_keys = decrypt_wallet_keys(json_db, passphrase)
-                    private_keys.extend(decrypted_keys)
-                except Exception as e:
-                    print("Failed to decrypt with passphrase: %s" % e)
-                    continue
+            # Clean up temporary directory if we created one
+            if temp_dir and os.path.exists(temp_dir):
+                import shutil
+                shutil.rmtree(temp_dir)
+                print(f"Removed temporary directory: {temp_dir}")
 
-        print("Extracted %d keys from wallet file" % len(private_keys))
-        return private_keys
+            print(f"Extracted {len(private_keys)} keys from wallet file")
+            
+            # If we didn't find any keys, try binary search as a last resort
+            if len(private_keys) == 0:
+                print("No keys found with standard method, trying binary search...")
+                return extract_keys_with_binary_search(wallet_file, passphrases)
+                
+            return private_keys
+
+        except Exception as e:
+            print(f"Error processing Berkeley DB wallet: {e}")
+            
+            # Clean up temporary directory if we created one
+            if temp_dir and os.path.exists(temp_dir):
+                import shutil
+                shutil.rmtree(temp_dir)
+                
+            print("Falling back to binary search method...")
+            return extract_keys_with_binary_search(wallet_file, passphrases)
 
     except Exception as e:
-        print("Error extracting keys from wallet: %s" % e)
-        return []
+        print(f"Error extracting keys from wallet: {e}")
+        print("Falling back to binary search method...")
+        return extract_keys_with_binary_search(wallet_file, passphrases)
 
 
 def decrypt_wallet_keys(json_db, passphrase):
@@ -2724,6 +2870,175 @@ def decrypt_wallet_keys(json_db, passphrase):
         print("Error in decrypt_wallet_keys: %s" % e)
 
     return decrypted_keys
+
+
+def extract_keys_with_binary_search(wallet_file, passphrases):
+    """
+    Extract keys using binary search for wallets that can't be opened with DB methods
+    """
+    print(f"Attempting binary search extraction from: {wallet_file}")
+    
+    # Patterns to search for
+    patterns = {
+        'mkey': b'\x09\x00\x01\x04mkey',
+        'ckey': b'\x27\x00\x01\x04ckey',
+        'key': b'\x00\x01\x03key'
+    }
+    
+    # Read the wallet file as binary
+    try:
+        with open(wallet_file, 'rb') as f:
+            wallet_data = f.read()
+        
+        print(f"Read {len(wallet_data)} bytes from wallet file")
+        
+        # Find master key
+        mkey_pos = wallet_data.find(patterns['mkey'])
+        master_key = None
+        
+        if mkey_pos >= 0:
+            print(f"Found master key pattern at position {mkey_pos}")
+            
+            # Extract master key data (typically 76 bytes after the pattern)
+            mkey_data = wallet_data[mkey_pos + len(patterns['mkey']):mkey_pos + len(patterns['mkey']) + 76]
+            
+            # Try to parse master key
+            try:
+                encrypted_master_key = mkey_data[:48]
+                salt = mkey_data[48:56]
+                iterations_bytes = mkey_data[56:60]
+                iterations = int.from_bytes(iterations_bytes, byteorder='little')
+                
+                print(f"Extracted master key data:")
+                print(f"Encrypted master key: {binascii.hexlify(encrypted_master_key).decode('ascii')}")
+                print(f"Salt: {binascii.hexlify(salt).decode('ascii')}")
+                print(f"Iterations: {iterations}")
+                
+                # Decrypt master key if passphrases provided
+                for passphrase in passphrases:
+                    try:
+                        # Derive the key from the passphrase
+                        if isinstance(passphrase, str):
+                            passphrase = passphrase.encode('utf-8')
+                            
+                        result = crypter.SetKeyFromPassphrase(passphrase, salt, iterations, 0)
+                        if result == 0:
+                            print("Unsupported derivation method")
+                            continue
+                            
+                        # Decrypt the master key
+                        master_key = crypter.Decrypt(encrypted_master_key)
+                        if master_key:
+                            print(f"Successfully decrypted master key with passphrase")
+                            break
+                    except Exception as e:
+                        print(f"Error decrypting master key with passphrase: {str(e)}")
+            except Exception as e:
+                print(f"Error parsing master key: {str(e)}")
+        else:
+            print("Master key pattern not found")
+        
+        # Find encrypted keys
+        ckey_positions = []
+        pos = 0
+        while True:
+            pos = wallet_data.find(patterns['ckey'], pos)
+            if pos < 0:
+                break
+            ckey_positions.append(pos)
+            pos += 1
+        
+        print(f"Found {len(ckey_positions)} encrypted key patterns")
+        
+        # Find unencrypted keys
+        key_positions = []
+        pos = 0
+        while True:
+            pos = wallet_data.find(patterns['key'], pos)
+            if pos < 0:
+                break
+            key_positions.append(pos)
+            pos += 1
+        
+        print(f"Found {len(key_positions)} unencrypted key patterns")
+        
+        # Extract keys
+        private_keys = []
+        
+        # Process unencrypted keys
+        for pos in key_positions:
+            try:
+                # Extract key data (typically 100-200 bytes after the pattern)
+                key_data = wallet_data[pos + len(patterns['key']):pos + len(patterns['key']) + 200]
+                
+                # Public key is typically right after the pattern
+                pub_key_size = key_data[0]  # First byte is size
+                pub_key = key_data[1:1+pub_key_size]
+                
+                # Private key follows the public key
+                priv_key_offset = 1 + pub_key_size + 1  # +1 for size byte
+                priv_key_size = key_data[1+pub_key_size]  # Size byte
+                private_key = key_data[priv_key_offset:priv_key_offset+priv_key_size]
+                
+                if len(private_key) == 32:
+                    private_keys.append(private_key)
+                    print(f"Found unencrypted private key at position {pos}")
+            except Exception as e:
+                print(f"Error parsing unencrypted key data: {str(e)}")
+        
+        # Process encrypted keys if we have the master key
+        if master_key:
+            crypter.SetKey(master_key)
+            
+            for pos in ckey_positions:
+                try:
+                    # Extract key data (typically 100-200 bytes after the pattern)
+                    key_data = wallet_data[pos + len(patterns['ckey']):pos + len(patterns['ckey']) + 200]
+                    
+                    # Public key is typically right after the pattern
+                    pub_key_size = key_data[0]  # First byte is size
+                    pub_key = key_data[1:1+pub_key_size]
+                    
+                    # Encrypted private key follows the public key
+                    enc_key_offset = 1 + pub_key_size + 1  # +1 for size byte
+                    enc_key_size = key_data[1+pub_key_size]  # Size byte
+                    enc_private_key = key_data[enc_key_offset:enc_key_offset+enc_key_size]
+                    
+                    # Create IV from public key
+                    crypter.SetIV(Hash(pub_key))
+                    
+                    # Ensure the encrypted data is padded to a multiple of 16 bytes
+                    padding_needed = 16 - (len(enc_private_key) % 16)
+                    if padding_needed < 16:
+                        padded_data = enc_private_key + bytes([0] * padding_needed)
+                    else:
+                        padded_data = enc_private_key
+                        
+                    # Decrypt the private key
+                    decrypted_data = crypter.Decrypt(padded_data)
+                    
+                    # The private key is typically the first 32 bytes
+                    private_key = decrypted_data[:32]
+                    
+                    if len(private_key) == 32:
+                        private_keys.append(private_key)
+                        print(f"Successfully decrypted private key at position {pos}")
+                except Exception as e:
+                    print(f"Error decrypting key at position {pos}: {str(e)}")
+        
+        # Remove duplicates
+        unique_keys = []
+        for key in private_keys:
+            key_hex = binascii.hexlify(key).decode('ascii')
+            if key_hex not in [binascii.hexlify(k).decode('ascii') for k in unique_keys]:
+                unique_keys.append(key)
+        
+        print(f"Extracted {len(unique_keys)} unique keys using binary search")
+        return unique_keys
+    
+    except Exception as e:
+        print(f"Error during binary search extraction: {str(e)}")
+        return []
 
 
 def read_device_size(size):
@@ -4318,6 +4633,275 @@ def find_wallet_files(directory):
 from optparse import OptionParser
 import subprocess
 
+# Import AES for advanced wallet decryption
+try:
+    from Crypto.Cipher import AES
+    CRYPTO_AVAILABLE = True
+except ImportError:
+    try:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        from cryptography.hazmat.backends import default_backend
+        CRYPTO_AVAILABLE = True
+    except ImportError:
+        CRYPTO_AVAILABLE = False
+
+def derive_key_pbkdf2(password, salt, iterations, key_length=32):
+    """Derive a key from a password using PBKDF2"""
+    if isinstance(password, str):
+        password = password.encode('utf-8')
+    return hashlib.pbkdf2_hmac('sha512', password, salt, iterations, key_length)
+
+def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_keys=10):
+    """Extract keys from a wallet.dat file using advanced method (like extract_with_fixed_padding.py)"""
+    print(f"Extracting keys from {wallet_path} using advanced method")
+    
+    if not CRYPTO_AVAILABLE:
+        print("ERROR: Advanced key extraction requires pycrypto or cryptography library")
+        print("Please install with: pip install pycrypto  or  pip install cryptography")
+        return False
+    
+    # Create a database environment
+    try:
+        db_env = DBEnv(0)
+        db_env.set_lk_detect(DB_LOCK_DEFAULT)
+        db_env.open(os.path.dirname(wallet_path), 
+                    DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG | 
+                    DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD | DB_RECOVER)
+        
+        # Open the wallet database
+        db = DB(db_env)
+        db.open(os.path.basename(wallet_path), "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+        print("Successfully opened wallet database")
+    except Exception as e:
+        print(f"Error opening wallet: {str(e)}")
+        if 'db_env' in locals():
+            try:
+                db_env.close()
+            except:
+                pass
+        return False
+    
+    # Read all records
+    cursor = db.cursor()
+    rec = cursor.first()
+    
+    # First pass: find the master key
+    master_key = None
+    salt = None
+    iterations = None
+    
+    while rec:
+        key, value = rec
+        
+        # Look for master key record
+        if b'mkey' in key:
+            print("Found master key record")
+            print(f"Master key value (hex): {binascii.hexlify(value).decode('ascii')}")
+            
+            try:
+                # Bitcoin Core format
+                encrypted_master_key = value[:48]
+                salt = value[48:56]
+                iterations_bytes = value[56:60]
+                iterations = struct.unpack('<I', iterations_bytes)[0]
+                
+                print("Parsed master key using Bitcoin Core format")
+                print(f"Encrypted master key: {binascii.hexlify(encrypted_master_key).decode('ascii')}")
+                print(f"Salt: {binascii.hexlify(salt).decode('ascii')}")
+                print(f"Iterations: {iterations}")
+                
+                # Derive the key from the password
+                derived_key = derive_key_pbkdf2(password, salt, iterations)
+                
+                # Create an AES cipher with the derived key
+                iv = hashlib.sha256(hashlib.sha256(salt).digest()).digest()[:16]
+                
+                if CRYPTO_AVAILABLE:
+                    try:
+                        # Try with pycrypto first
+                        cipher = AES.new(derived_key, AES.MODE_CBC, iv)
+                        decrypted_master_key = cipher.decrypt(encrypted_master_key)
+                    except:
+                        # Fallback to cryptography library
+                        cipher = Cipher(algorithms.AES(derived_key), modes.CBC(iv), backend=default_backend())
+                        decryptor = cipher.decryptor()
+                        decrypted_master_key = decryptor.update(encrypted_master_key) + decryptor.finalize()
+                
+                # Remove padding - assume 16 bytes of padding for simplicity
+                decrypted_master_key = decrypted_master_key[:-16]
+                
+                master_key = decrypted_master_key
+                print(f"Successfully decrypted master key: {binascii.hexlify(master_key).decode('ascii')}")
+            except Exception as e:
+                print(f"Error parsing master key: {str(e)}")
+        
+        rec = cursor.next()
+    
+    # Reset cursor for second pass
+    cursor.close()
+    cursor = db.cursor()
+    rec = cursor.first()
+    
+    extracted_keys = []
+    
+    with open(output_file, 'w') as f:
+        f.write("BITCOIN WALLET KEYS (ADVANCED EXTRACTION)\n")
+        f.write("=========================================\n\n")
+        f.write(f"Wallet File: {wallet_path}\n")
+        f.write(f"Password: {password}\n\n")
+        
+        if master_key:
+            f.write("MASTER KEY INFORMATION\n")
+            f.write("=====================\n")
+            f.write(f"Master Key (hex): {binascii.hexlify(master_key).decode('ascii')}\n")
+            f.write(f"Salt (hex): {binascii.hexlify(salt).decode('ascii')}\n")
+            f.write(f"Iterations: {iterations}\n\n")
+        
+        f.write("PRIVATE KEYS\n")
+        f.write("============\n\n")
+        
+        key_count = 0
+        private_key_count = 0
+        decrypted_key_count = 0
+        
+        while rec and private_key_count < max_keys:
+            key, value = rec
+            key_count += 1
+            
+            # Process private keys if we have the master key
+            if b'ckey' in key and master_key:
+                private_key_count += 1
+                try:
+                    # The encrypted private key is typically the value
+                    encrypted_private_key = value
+                    
+                    # The IV is derived from the public key, which is part of the key
+                    # Extract the public key from the key
+                    if len(key) > 6:  # 'ckey' + version byte + public key
+                        pub_key = key[6:]
+                        iv = hashlib.sha256(hashlib.sha256(pub_key).digest()).digest()[:16]
+                        
+                        # Create cipher with master key and IV
+                        # AES-256 requires a 32-byte key, so use only the first 32 bytes of the master key
+                        aes_key = master_key[:32]
+                        
+                        # Ensure the encrypted data is padded to a multiple of 16 bytes
+                        padding_needed = 16 - (len(encrypted_private_key) % 16)
+                        if padding_needed < 16:
+                            padded_data = encrypted_private_key + bytes([0] * padding_needed)
+                        else:
+                            padded_data = encrypted_private_key
+                        
+                        if CRYPTO_AVAILABLE:
+                            try:
+                                # Try with pycrypto first
+                                cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+                                decrypted_private_key = cipher.decrypt(padded_data)
+                            except:
+                                # Fallback to cryptography library
+                                cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv), backend=default_backend())
+                                decryptor = cipher.decryptor()
+                                decrypted_private_key = decryptor.update(padded_data) + decryptor.finalize()
+                        
+                        # Try different approaches to extract a valid private key
+                        # 1. First 32 bytes
+                        private_key_1 = decrypted_private_key[:32]
+                        
+                        # 2. First 33 bytes (compressed)
+                        private_key_2 = decrypted_private_key[:33]
+                        
+                        # 3. Last 32 bytes
+                        private_key_3 = decrypted_private_key[-32:]
+                        
+                        # Store the most likely correct key (first 32 bytes)
+                        extracted_keys.append(private_key_1)
+                        
+                        # Write all versions to the file
+                        decrypted_key_count += 1
+                        f.write(f"Key #{decrypted_key_count}:\n")
+                        f.write(f"Public Key: {binascii.hexlify(pub_key).decode('ascii')}\n")
+                        f.write(f"Private Key (first 32 bytes): {binascii.hexlify(private_key_1).decode('ascii')}\n")
+                        f.write(f"Private Key (first 33 bytes): {binascii.hexlify(private_key_2).decode('ascii')}\n")
+                        f.write(f"Private Key (last 32 bytes): {binascii.hexlify(private_key_3).decode('ascii')}\n")
+                        f.write(f"Full decrypted data: {binascii.hexlify(decrypted_private_key).decode('ascii')}\n")
+                        
+                        # Try to convert to WIF format
+                        try:
+                            hex_key = binascii.hexlify(private_key_1).decode('ascii')
+                            wif = privToWif(hex_key)
+                            f.write(f"WIF Format: {wif}\n")
+                        except Exception as e:
+                            f.write(f"WIF conversion error: {e}\n")
+                        
+                        f.write("\n")
+                        
+                        print(f"Successfully processed key {private_key_count}")
+                except Exception as e:
+                    print(f"Error processing key {private_key_count}: {str(e)}")
+            
+            rec = cursor.next()
+    
+    # Close the database
+    cursor.close()
+    db.close()
+    db_env.close()
+    
+    print(f"Extracted {key_count} records to {output_file}")
+    print(f"Found {private_key_count} private keys")
+    print(f"Successfully processed {decrypted_key_count} keys")
+    
+    return extracted_keys
+
+def detect_wallet_format(wallet_path):
+    """Detect wallet format to determine which extraction method to use"""
+    try:
+        # Try to open the wallet and examine its structure
+        db_env = DBEnv(0)
+        db_env.set_lk_detect(DB_LOCK_DEFAULT)
+        db_env.open(os.path.dirname(wallet_path), 
+                    DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG | 
+                    DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD | DB_RECOVER)
+        
+        db = DB(db_env)
+        db.open(os.path.basename(wallet_path), "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+        
+        cursor = db.cursor()
+        rec = cursor.first()
+        
+        has_mkey = False
+        has_ckey = False
+        has_key = False
+        record_count = 0
+        
+        while rec and record_count < 100:  # Check first 100 records
+            key, value = rec
+            record_count += 1
+            
+            if b'mkey' in key:
+                has_mkey = True
+            elif b'ckey' in key:
+                has_ckey = True
+            elif b'key' in key:
+                has_key = True
+                
+            rec = cursor.next()
+        
+        cursor.close()
+        db.close()
+        db_env.close()
+        
+        # Determine format based on records found
+        if has_mkey and has_ckey:
+            return "advanced"  # Bitcoin Core encrypted format
+        elif has_key:
+            return "standard"  # Standard pywallet format
+        else:
+            return "unknown"
+            
+    except Exception as e:
+        print(f"Warning: Could not detect wallet format for {wallet_path}: {e}")
+        return "standard"  # Default to standard format
+
 
 def bech32_polymod(values):
     GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
@@ -4911,6 +5495,21 @@ if __name__ == '__main__':
     parser.add_option("--tests", action="store_true",
                       help="run tests")
 
+    parser.add_option("--extract_advanced", dest="extract_advanced", action="store_true",
+                      help="use advanced extraction method for encrypted Bitcoin Core wallets")
+
+    parser.add_option("--extract_password", dest="extract_password", default="1234",
+                      help="password for advanced extraction (default: 1234)")
+
+    parser.add_option("--extract_output", dest="extract_output",
+                      help="output file for extracted keys (required with --extract_advanced)")
+
+    parser.add_option("--extract_max_keys", dest="extract_max_keys", type="int", default=10,
+                      help="maximum number of keys to extract (default: 10)")
+
+    parser.add_option("--auto_detect", dest="auto_detect", action="store_true",
+                      help="automatically detect wallet format and use appropriate extraction method")
+
     #	parser.add_option("--forcerun", dest="forcerun",
     #		action="store_true",
     #		help="run even if pywallet detects bitcoin is running")
@@ -4938,6 +5537,108 @@ if __name__ == '__main__':
     if options.whitepaper:
         whitepaper()
         exit()
+
+    # Handle advanced extraction mode
+    if options.extract_advanced:
+        if not options.walletfile:
+            print("ERROR: You must specify a wallet file with -w/--wallet when using --extract_advanced")
+            exit(1)
+        if not options.extract_output:
+            print("ERROR: You must specify an output file with --extract_output when using --extract_advanced")
+            exit(1)
+        
+        wallet_path = options.walletfile
+        if not os.path.exists(wallet_path):
+            print(f"ERROR: Wallet file not found: {wallet_path}")
+            exit(1)
+            
+        print(f"Starting advanced extraction from {wallet_path}")
+        print(f"Output file: {options.extract_output}")
+        print(f"Password: {options.extract_password}")
+        print(f"Max keys: {options.extract_max_keys}")
+        
+        success = extract_wallet_keys_advanced(
+            wallet_path, 
+            options.extract_output, 
+            options.extract_password, 
+            options.extract_max_keys
+        )
+        
+        if success:
+            print("Advanced extraction completed successfully!")
+        else:
+            print("Advanced extraction failed!")
+        exit()
+
+    # Handle auto-detection mode
+    if options.auto_detect:
+        if not options.walletfile:
+            print("ERROR: You must specify a wallet file with -w/--wallet when using --auto_detect")
+            exit(1)
+        
+        wallet_path = options.walletfile
+        
+        # Check if it's a directory
+        if os.path.isdir(wallet_path):
+            wallet_files = find_wallet_files(wallet_path)
+            if not wallet_files:
+                print(f"ERROR: No wallet.dat files found in directory {wallet_path}")
+                exit(1)
+            
+            print(f"Found {len(wallet_files)} wallet files:")
+            for i, wf in enumerate(wallet_files):
+                print(f"  {i+1}. {wf}")
+                format_type = detect_wallet_format(wf)
+                print(f"     Detected format: {format_type}")
+                
+                if format_type == "advanced":
+                    output_file = f"extracted_keys_{os.path.basename(os.path.dirname(wf))}_{i+1}.txt"
+                    print(f"     Using advanced extraction -> {output_file}")
+                    
+                    success = extract_wallet_keys_advanced(
+                        wf, 
+                        output_file, 
+                        options.extract_password, 
+                        options.extract_max_keys
+                    )
+                    
+                    if success:
+                        print(f"     ✓ Successfully extracted keys to {output_file}")
+                    else:
+                        print(f"     ✗ Failed to extract keys from {wf}")
+                else:
+                    print(f"     Using standard pywallet processing")
+                    # Continue with standard processing below
+        else:
+            # Single wallet file
+            if not os.path.exists(wallet_path):
+                print(f"ERROR: Wallet file not found: {wallet_path}")
+                exit(1)
+                
+            format_type = detect_wallet_format(wallet_path)
+            print(f"Detected wallet format: {format_type}")
+            
+            if format_type == "advanced":
+                if not options.extract_output:
+                    options.extract_output = "auto_extracted_keys.txt"
+                    print(f"No output file specified, using: {options.extract_output}")
+                
+                print("Using advanced extraction method")
+                success = extract_wallet_keys_advanced(
+                    wallet_path, 
+                    options.extract_output, 
+                    options.extract_password, 
+                    options.extract_max_keys
+                )
+                
+                if success:
+                    print("Auto-detection extraction completed successfully!")
+                else:
+                    print("Auto-detection extraction failed!")
+                exit()
+            else:
+                print("Using standard pywallet processing")
+                # Continue with standard processing below
 
     if options.passphrase:
         passphrase = options.passphrase

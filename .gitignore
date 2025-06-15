@@ -24,3 +24,7 @@ extract_with_fixed_padding.py
 pywallet_env/
 wallet_info.py
 wallets/
+WALLET_FORMATS.md
+WALLET_FORMAT_DIFFERENCES.md
+extract_wallet_keys.sh
+wallet_format_detector.py
