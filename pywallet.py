@@ -2142,6 +2142,23 @@ def recov_uckeyOLD(fd, offset):
 
 
 def recov(device, passes, size=102400, inc=10240, outputdir='.'):
+    global crypter, recoveredKeys
+    
+    # Initialize global variables
+    recoveredKeys = []
+    
+    # Initialize crypter if not already done
+    if crypter is None:
+        try:
+            from Crypto.Cipher import AES
+            crypter = Crypter_pycrypto()
+        except ImportError:
+            try:
+                import ssl
+                crypter = Crypter_ssl()
+            except:
+                crypter = Crypter_pure()
+    
     if inc % 512 > 0:
         inc -= inc % 512  # inc must be 512*n on Windows... Don't ask me why...
 
@@ -2315,6 +2332,7 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.'):
                                 ck.mkey = mk
                                 ck.privkey = secret
                                 success_count += 1
+                                recoveredKeys.append(secret)  # Add to global recovery list
                                 print(f"\nSuccessfully decrypted key #{success_count}")
                         except Exception as e:
                             print(f"Error validating key: {str(e)}")
@@ -2353,31 +2371,32 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.'):
             cont = raw_input("Do you want to test them? (y/n): ")
             while len(cont) == 0:
                 cont = raw_input("Do you want to test them? (y/n): ")
-                if cont[0] == 'y':
-                    refused_to_test_all_pps = False
-                    cpt = 0
-                    for dist, mko, mk in tl:
-                        for ppi, pp in enumerate(passes):
-                            res = crypter.SetKeyFromPassphrase(pp, mk.salt, mk.iterations, mk.method)
-                            if res == 0:
-                                logging.error("Unsupported derivation method")
-                                sys.exit(1)
-                            masterkey = crypter.Decrypt(mk.encrypted_key)
-                            crypter.SetKey(masterkey)
-                            for cko, ck in ckeys_not_decrypted:
-                                tl = map(lambda x: [abs(x[0] - cko)] + x, mkeys)
-                                tl = sorted(tl, key=lambda x: x[0])
-                                if mk == tl[0][2]:
-                                    continue  # because already tested
-                                crypter.SetIV(Hash(ck.public_key))
-                                secret = crypter.Decrypt(ck.encrypted_pk)
-                                compressed = ck.public_key[0] != '\04'
+            if len(cont) > 0 and cont[0].lower() == 'y':
+                refused_to_test_all_pps = False
+                cpt = 0
+                for dist, mko, mk in tl:
+                    for ppi, pp in enumerate(passes):
+                        res = crypter.SetKeyFromPassphrase(pp, mk.salt, mk.iterations, mk.method)
+                        if res == 0:
+                            logging.error("Unsupported derivation method")
+                            sys.exit(1)
+                        masterkey = crypter.Decrypt(mk.encrypted_key)
+                        crypter.SetKey(masterkey)
+                        for cko, ck in ckeys_not_decrypted:
+                            tl = map(lambda x: [abs(x[0] - cko)] + x, mkeys)
+                            tl = sorted(tl, key=lambda x: x[0])
+                            if mk == tl[0][2]:
+                                continue  # because already tested
+                            crypter.SetIV(Hash(ck.public_key))
+                            secret = crypter.Decrypt(ck.encrypted_pk)
+                            compressed = ck.public_key[0] != '\04'
 
-                                pkey = EC_KEY(int(b'0x' + binascii.hexlify(secret), 16))
-                                if ck.public_key == GetPubKey(pkey, compressed):
-                                    ck.mkey = mk
-                                    ck.privkey = secret
-                                cpt += 1
+                            pkey = EC_KEY(int(b'0x' + binascii.hexlify(secret), 16))
+                            if ck.public_key == GetPubKey(pkey, compressed):
+                                ck.mkey = mk
+                                ck.privkey = secret
+                                recoveredKeys.append(secret)  # Add to global recovery list
+                            cpt += 1
 
         print("")
         ckeys_not_decrypted = filter(lambda x: x[1].privkey == None, ckeys)
@@ -5681,6 +5700,40 @@ if __name__ == '__main__':
                 print("No wallet.dat files found in directory %s" % repr(os.path.realpath(device)))
                 print("Continuing with recovery from the directory as a device...")
             else:
+                print("Found %d wallet.dat files. Analyzing formats..." % len(wallet_files))
+                
+                # Auto-process all wallet files with format detection
+                processed_files = 0
+                for i, wf in enumerate(wallet_files):
+                    print(f"\nProcessing wallet {i+1}/{len(wallet_files)}: {wf}")
+                    format_type = detect_wallet_format(wf)
+                    print(f"Detected format: {format_type}")
+                    
+                    if format_type == "advanced":
+                        # Use advanced extraction method
+                        output_file = options.output_keys or f"recovered_keys_{os.path.basename(os.path.dirname(wf))}_{i+1}.txt"
+                        print(f"Using advanced extraction -> {output_file}")
+                        
+                        success = extract_wallet_keys_advanced(
+                            wf, 
+                            output_file, 
+                            "1234",  # Default password, could be made configurable
+                            10  # Default max keys
+                        )
+                        
+                        if success:
+                            print(f"✓ Successfully extracted keys to {output_file}")
+                            processed_files += 1
+                        else:
+                            print(f"✗ Failed to extract keys from {wf}")
+                    else:
+                        print(f"Wallet requires standard recovery method, skipping auto-processing")
+                
+                if processed_files > 0:
+                    print(f"\nAuto-processed {processed_files} wallet files successfully!")
+                    print("For wallets that weren't auto-processed, use standard recovery method.")
+                    exit(0)
+                
                 if len(wallet_files) > 1:
                     print("Found multiple wallet.dat files:")
                     for i, wf in enumerate(wallet_files):
@@ -5707,7 +5760,37 @@ if __name__ == '__main__':
 
         # Check if device is a wallet file (only if it's named wallet.dat)
         if os.path.isfile(device) and os.path.basename(device).lower() == 'wallet.dat':
-            print("Detected wallet file. Attempting to extract keys directly from wallet...")
+            print("Detected wallet file. Analyzing format...")
+            
+            # Auto-detect wallet format
+            format_type = detect_wallet_format(device)
+            print(f"Wallet format detected: {format_type}")
+            
+            if format_type == "advanced":
+                print("This is a Bitcoin Core encrypted wallet.")
+                print("Using advanced extraction method...")
+                
+                # Use the first passphrase if provided, otherwise default
+                password = passes[0] if passes else "1234"
+                output_file = options.output_keys or "auto_recovered_keys.txt"
+                
+                print(f"Trying password: {password}")
+                print(f"Output file: {output_file}")
+                
+                success = extract_wallet_keys_advanced(
+                    device, 
+                    output_file, 
+                    password, 
+                    10  # Default max keys
+                )
+                
+                if success:
+                    print(f"✓ Successfully extracted keys using advanced method!")
+                    exit(0)
+                else:
+                    print("✗ Advanced extraction failed. Trying standard recovery...")
+            
+            print("Attempting standard wallet key extraction...")
             try:
                 # Try to read the wallet file directly
                 recoveredKeys = extract_keys_from_wallet(device, passes)

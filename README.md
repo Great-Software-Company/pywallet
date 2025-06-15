@@ -46,12 +46,33 @@ pip install bsddb3
 
 ## Usage
 
+### Important: Choose the Right Command
+
+**⚠️ IMPORTANT:** There are two different approaches for extracting keys, choose the right one:
+
+#### For Intact Wallet Files (Recommended)
+If you have a complete, non-corrupted `wallet.dat` file and know the password:
+```bash
+# Extract keys from intact wallet with known password
+./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=YOUR_PASSWORD --extract_output=keys.txt
+```
+
+#### For Damaged/Lost Wallet Data (Advanced)
+If your wallet is corrupted, deleted, or you're scanning raw disk data:
+```bash
+# Recover keys from damaged/corrupted data
+./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --output_keys=recovered_keys.txt
+```
+
 ### Using the Run Script (Recommended)
 ```bash
 # Show help
 ./run_pywallet.sh --help
 
-# Recover keys to text file (NEW FEATURE)
+# Extract from intact wallet (FAST - use this if you have a working wallet.dat)
+./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=1234 --extract_output=keys.txt
+
+# Recover keys from damaged data (SLOW - only use for actual recovery)
 ./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --output_keys=recovered_keys.txt
 
 # Traditional wallet recovery
@@ -67,9 +88,38 @@ source pywallet_build_env/bin/activate
 python3 pywallet/pywallet.py [options]
 ```
 
-## New Command Line Options
+## Command Line Options
 
-### `--output_keys=FILENAME`
+### Key Extraction Options (For Intact Wallets)
+
+#### `--extract_advanced`
+Extract keys from a complete, intact wallet file with known password.
+- **Usage**: `--extract_advanced -w wallet.dat --extract_password=PASSWORD`
+- **Fast and efficient**: Direct database access, no byte scanning
+- **Best for**: Complete wallet files with known passwords
+
+#### `--extract_password=PASSWORD`
+Specify the wallet password for key extraction.
+- **Usage**: `--extract_password=your_wallet_password`
+- **Required with**: `--extract_advanced`
+- **Security tip**: Use quotes if password contains special characters
+
+#### `--extract_output=FILENAME`
+Specify output file for extracted keys.
+- **Usage**: `--extract_output=extracted_keys.txt`
+- **Default**: Keys are printed to console if not specified
+- **Format**: Same as `--output_keys` (hex and WIF formats)
+
+#### `--extract_max_keys=NUMBER` (Optional)
+Limit the number of keys to extract.
+- **Usage**: `--extract_max_keys=20`
+- **Default**: 10 keys (if not specified)
+- **Useful for**: Testing or limiting output size
+- **Note**: You can omit this parameter to extract up to 10 keys by default
+
+### Recovery Options (For Damaged Data)
+
+#### `--output_keys=FILENAME`
 Export recovered private keys to a text file instead of creating a wallet.
 - **Usage**: `--output_keys=keys.txt`
 - **Output format**: Private keys in both hex and WIF formats
@@ -105,9 +155,63 @@ Check if a WIF format private key is valid.
 - **Usage**: `--wifcheck=5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ`
 - **Output**: Displays whether the WIF key passes checksum validation
 
+## Key Extraction vs Recovery: What's the Difference?
+
+### `--extract_advanced` (For Intact Wallets)
+**Use this when:**
+- ✅ You have a complete `wallet.dat` file
+- ✅ You know the wallet password
+- ✅ The wallet file is not corrupted
+- ✅ You want fast key extraction
+
+**How it works:**
+- Treats the file as a complete, valid wallet database
+- Uses the known password to decrypt keys directly
+- Follows normal wallet database structure
+- **Fast and efficient**
+
+**Example:**
+```bash
+./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=1234 --extract_output=keys.txt
+```
+
+### `--recover` (For Damaged/Missing Wallet Data)
+**Use this when:**
+- 🔧 Your wallet file is corrupted or partially deleted
+- 🔧 You're scanning a hard drive for wallet remnants
+- 🔧 You don't have a complete wallet.dat file
+- 🔧 You're working with raw disk images or partitions
+
+**How it works:**
+- Scans data byte-by-byte looking for wallet patterns
+- Attempts to reconstruct wallet information from fragments
+- Requires manual passphrase input during the process
+- **Much slower and more intensive**
+
+**Example:**
+```bash
+./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --output_keys=recovered_keys.txt
+```
+
+### Why `--recover` Might Hang
+If you use `--recover` on an intact wallet file:
+- It will scan the file byte-by-byte (unnecessary and slow)
+- It will prompt for passphrases interactively
+- It may appear to hang during decryption attempts
+- **This is the wrong tool for the job!**
+
 ## Examples
 
-### 1. Basic Key Recovery to Text File
+### 1. Extract Keys from Intact Wallet (Recommended)
+```bash
+./run_pywallet.sh --extract_advanced \
+    -w wallets/wallet1.dat \
+    --extract_password=your_password \
+    --extract_output=my_keys.txt \
+    --extract_max_keys=100
+```
+
+### 2. Basic Key Recovery from Damaged Data
 ```bash
 ./run_pywallet.sh --recover \
     --recov_device=/dev/sda1 \
@@ -193,6 +297,37 @@ KyBwDMRRz5Xd1XVo4JPcgoLiC9UYFNRmYEjXQvBKBBsRZtCNUPWM
 - **Storage**: Depends on recovery size
 
 ## Troubleshooting
+
+### Berkeley DB Error (BDB2509)
+If you get an error like: `Error opening wallet: (22, 'Invalid argument -- BDB2509 the log files from a database environment')`
+
+**Cause:** Stale Berkeley DB environment files in the wallet directory.
+
+**Solutions:**
+1. **Remove stale database files:**
+   ```bash
+   # Navigate to your wallet directory
+   cd wallets/
+   # Remove Berkeley DB environment files
+   rm -f __db.*
+   ```
+
+2. **Copy wallet to clean directory:**
+   ```bash
+   # Create a clean directory
+   mkdir clean_wallets
+   # Copy only the wallet.dat file (not the __db.* files)
+   cp wallets/wallet.dat clean_wallets/
+   # Use the clean copy
+   ./run_pywallet.sh --extract_advanced -w clean_wallets/wallet.dat --extract_password=PASSWORD --extract_output=keys.txt
+   ```
+
+3. **Check wallet file integrity:**
+   ```bash
+   # Verify the wallet file is not corrupted
+   file wallets/wallet.dat
+   # Should show: "Berkeley DB (Log, version X, native byte-order)"
+   ```
 
 ### Virtual Environment Issues
 ```bash
