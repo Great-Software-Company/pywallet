@@ -4679,26 +4679,79 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
         print("Please install with: pip install pycrypto  or  pip install cryptography")
         return False
     
-    # Create a database environment
+    # Try simplified database opening first (without environment)
+    db = None
+    db_env = None
+    
     try:
-        db_env = DBEnv(0)
-        db_env.set_lk_detect(DB_LOCK_DEFAULT)
-        db_env.open(os.path.dirname(wallet_path), 
-                    DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG | 
-                    DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD | DB_RECOVER)
+        # Method 1: Try opening without environment (simpler, often works)
+        print(f"Attempting to open {wallet_path} without DB environment...")
+        db = DB()
+        db.open(wallet_path, None, DB_BTREE, DB_RDONLY)
+        print("Successfully opened wallet database (no environment)")
+    except Exception as e1:
+        print(f"Simple open failed: {str(e1)}")
         
-        # Open the wallet database
-        db = DB(db_env)
-        db.open(os.path.basename(wallet_path), "main", DB_BTREE, DB_THREAD | DB_RDONLY)
-        print("Successfully opened wallet database")
-    except Exception as e:
-        print(f"Error opening wallet: {str(e)}")
-        if 'db_env' in locals():
+        # Method 2: Try with minimal environment setup
+        try:
+            print("Attempting to open with minimal DB environment...")
+            import tempfile
+            db_env = DBEnv(0)
+            # Use a temporary directory for environment to avoid conflicts
+            temp_env_dir = tempfile.mkdtemp()
+            print(f"Using temporary environment directory: {temp_env_dir}")
+            
+            db_env.open(temp_env_dir, DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE)
+            
+            db = DB(db_env)
+            db.open(wallet_path, None, DB_BTREE, DB_RDONLY)
+            print("Successfully opened wallet database (with temp environment)")
+        except Exception as e2:
+            print(f"Environment open failed: {str(e2)}")
+            
+            # Method 3: Try original method but with absolute path
             try:
-                db_env.close()
-            except:
-                pass
-        return False
+                print("Attempting original method with absolute path...")
+                if db_env:
+                    try:
+                        db_env.close()
+                    except:
+                        pass
+                
+                db_env = DBEnv(0)
+                db_env.set_lk_detect(DB_LOCK_DEFAULT)
+                wallet_abs_path = os.path.abspath(wallet_path)
+                wallet_dir = os.path.dirname(wallet_abs_path)
+                wallet_file = os.path.basename(wallet_abs_path)
+                
+                # Clean any existing environment files
+                for f in os.listdir(wallet_dir):
+                    if f.startswith('__db.'):
+                        try:
+                            os.remove(os.path.join(wallet_dir, f))
+                            print(f"Removed stale DB file: {f}")
+                        except:
+                            pass
+                
+                db_env.open(wallet_dir, DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG | 
+                           DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD | DB_RECOVER)
+                
+                db = DB(db_env)
+                db.open(wallet_file, "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+                print("Successfully opened wallet database (original method)")
+            except Exception as e3:
+                print(f"All database open methods failed!")
+                print(f"Method 1 (simple): {str(e1)}")  
+                print(f"Method 2 (temp env): {str(e2)}")
+                print(f"Method 3 (original): {str(e3)}")
+                
+                # Clean up
+                if db_env:
+                    try:
+                        db_env.close()
+                    except:
+                        pass
+                return False
     
     # Read all records
     cursor = db.cursor()
@@ -4863,7 +4916,8 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
     # Close the database
     cursor.close()
     db.close()
-    db_env.close()
+    if db_env:
+        db_env.close()
     
     print(f"Extracted {key_count} records to {output_file}")
     print(f"Found {private_key_count} private keys")
