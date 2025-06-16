@@ -15,6 +15,7 @@ This is an improved version of pywallet with full Python 3 support and enhanced 
 - **Improved size format support**: Now accepts both old (Mo, Gio) and new (MB, GB) formats
 - **Better error handling**: Clearer error messages and validation
 - **WIF format support**: Recovered keys are now also output in WIF format for easy import into other wallets
+- **Berkeley DB BDB2509 Error Fix**: Automatic resolution of database environment conflicts using temporary isolation
 
 ### 3. **Backward Compatibility** ✅
 - All original functionality preserved
@@ -303,7 +304,16 @@ If you get an error like: `Error opening wallet: (22, 'Invalid argument -- BDB25
 
 **Cause:** Stale Berkeley DB environment files in the wallet directory.
 
-**Solutions:**
+**✅ FIXED IN VERSION 2.2-py3-improved:**
+This issue has been **automatically resolved** in the current version! The `--extract_advanced` command now uses:
+- **Temporary directory isolation**: Creates a clean temporary environment for each extraction
+- **Progressive database opening**: Tries multiple database access methods automatically
+- **Smart fallback system**: Starts with simple direct access, then tries minimal environment, then full environment
+- **Automatic cleanup**: Removes all temporary files after extraction
+
+**The fix works automatically - no manual intervention needed!**
+
+**Legacy Manual Solutions** (for older versions or if issues persist):
 1. **Remove stale database files:**
    ```bash
    # Navigate to your wallet directory
@@ -328,6 +338,19 @@ If you get an error like: `Error opening wallet: (22, 'Invalid argument -- BDB25
    file wallets/wallet.dat
    # Should show: "Berkeley DB (Log, version X, native byte-order)"
    ```
+
+**Technical Details of the Fix:**
+The BDB2509 error occurred because the Berkeley DB environment was being opened with the `DB_RECOVER` flag, which created conflicting `__db.*` environment files. The fix implements:
+
+1. **Isolated Temporary Environment**: Each extraction operation uses a fresh temporary directory
+2. **Progressive Access Strategy**:
+   - First: Direct database access (fastest, no environment files)
+   - Second: Minimal environment with memory pool only
+   - Third: Full environment without logging
+   - Final: Full environment with all flags as fallback
+3. **Comprehensive Cleanup**: All temporary files and database environments are properly closed and removed
+
+This ensures that wallet extractions never interfere with each other or leave stale environment files.
 
 ### Virtual Environment Issues
 ```bash

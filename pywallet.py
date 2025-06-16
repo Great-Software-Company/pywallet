@@ -4692,25 +4692,84 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
         print("Please install with: pip install pycrypto  or  pip install cryptography")
         return False
 
-    # Create a database environment
+    import tempfile
+    import shutil
+    
+    # Create a temporary directory to isolate the database environment
+    temp_dir = tempfile.mkdtemp(prefix="pywallet_temp_")
+    temp_wallet_path = None
+    db_env = None
+    db = None
+    
     try:
-        db_env = DBEnv(0)
-        db_env.set_lk_detect(DB_LOCK_DEFAULT)
-        db_env.open(os.path.dirname(wallet_path),
-                    DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG |
-                    DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD | DB_RECOVER)
-
-        # Open the wallet database
-        db = DB(db_env)
-        db.open(os.path.basename(wallet_path), "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+        # Copy wallet to temporary directory to avoid conflicts
+        temp_wallet_path = os.path.join(temp_dir, "temp_wallet.dat")
+        shutil.copy2(wallet_path, temp_wallet_path)
+        print(f"Using temporary copy: {temp_wallet_path}")
+        
+        # Clean any existing __db.* files in the temp directory (shouldn't exist, but be safe)
+        for file in os.listdir(temp_dir):
+            if file.startswith('__db.'):
+                os.remove(os.path.join(temp_dir, file))
+        
+        # Try opening the database directly without environment first
+        try:
+            # Simple approach: Try to open database without environment
+            db = DB()
+            db.open(temp_wallet_path, "main", DB_BTREE, DB_RDONLY)
+            print("Successfully opened wallet database (direct mode)")
+        except Exception as e1:
+            print(f"Direct open failed: {e1}, trying with environment...")
+            
+            # Create a minimal database environment in the temporary directory
+            db_env = DBEnv(0)
+            
+            # Try with minimal environment flags
+            try:
+                db_env.open(temp_dir, DB_CREATE | DB_INIT_MPOOL)
+                db = DB(db_env)
+                db.open("temp_wallet.dat", "main", DB_BTREE, DB_RDONLY)
+                print("Successfully opened wallet database (minimal environment)")
+            except Exception as e2:
+                print(f"Minimal environment failed: {e2}, trying full environment...")
+                
+                # Close and recreate environment
+                try:
+                    db_env.close()
+                except:
+                    pass
+                
+                db_env = DBEnv(0)
+                db_env.set_lk_detect(DB_LOCK_DEFAULT)
+                
+                # Try full environment without logging
+                try:
+                    db_env.open(temp_dir,
+                                DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD)
+                    db = DB(db_env)
+                    db.open("temp_wallet.dat", "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+                    print("Successfully opened wallet database (full environment, no logging)")
+                except Exception as e3:
+                    print(f"Full environment without logging failed: {e3}")
+                    raise e3
         print("Successfully opened wallet database")
+        
     except Exception as e:
         print(f"Error opening wallet: {str(e)}")
-        if 'db_env' in locals():
+        # Clean up
+        if db:
+            try:
+                db.close()
+            except:
+                pass
+        if db_env:
             try:
                 db_env.close()
             except:
                 pass
+        # Clean up temporary directory
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return False
 
     # Read all records
@@ -4876,7 +4935,13 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
     # Close the database
     cursor.close()
     db.close()
-    db_env.close()
+    if db_env:
+        db_env.close()
+    
+    # Clean up temporary directory
+    if temp_dir and os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(f"Cleaned up temporary directory: {temp_dir}")
 
     print(f"Extracted {key_count} records to {output_file}")
     print(f"Found {private_key_count} private keys")
