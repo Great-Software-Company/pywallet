@@ -4828,18 +4828,39 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
 
         rec = cursor.next()
 
-    # Reset cursor for second pass
+    # Reset cursor for second pass - COUNT ALL KEYS FIRST
     cursor.close()
     cursor = db.cursor()
     rec = cursor.first()
 
+    # Skip counting here since it's already done before calling this function
+    # Go directly to extraction
+
     extracted_keys = []
+
+    # First, count records and keys for the output file
+    temp_cursor = db.cursor()
+    temp_rec = temp_cursor.first()
+    total_records = 0
+    total_private_keys = 0
+    
+    while temp_rec:
+        key, value = temp_rec
+        total_records += 1
+        if b'ckey' in key:
+            total_private_keys += 1
+        temp_rec = temp_cursor.next()
+    temp_cursor.close()
 
     with open(output_file, 'w') as f:
         f.write("BITCOIN WALLET KEYS (ADVANCED EXTRACTION)\n")
         f.write("=========================================\n\n")
         f.write(f"Wallet File: {wallet_path}\n")
-        f.write(f"Password: {password}\n\n")
+        f.write(f"Password: {password}\n")
+        f.write(f"Total Records in Wallet: {total_records}\n")
+        f.write(f"Total Private Keys Available: {total_private_keys}\n")
+        f.write(f"Extraction Limit: {max_keys}\n")
+        f.write(f"Keys Being Extracted: {min(max_keys, total_private_keys)}\n\n")
 
         if master_key:
             f.write("MASTER KEY INFORMATION\n")
@@ -4943,11 +4964,170 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
         shutil.rmtree(temp_dir, ignore_errors=True)
         print(f"Cleaned up temporary directory: {temp_dir}")
 
-    print(f"Extracted {key_count} records to {output_file}")
-    print(f"Found {private_key_count} private keys")
-    print(f"Successfully processed {decrypted_key_count} keys")
+    print(f"\nEXTRACTION SUMMARY:")
+    print(f"==================")
+    print(f"Output file: {output_file}")
+    print(f"Total records in wallet: {total_records}")
+    print(f"Total private keys available: {total_private_keys}")
+    print(f"Records processed in this run: {key_count}")
+    print(f"Private keys found in this run: {private_key_count}")
+    print(f"Keys successfully decrypted: {decrypted_key_count}")
+    
+    if total_private_keys > max_keys:
+        print(f"\nNOTE: This wallet contains {total_private_keys} total private keys.")
+        print(f"You extracted only {private_key_count} keys (limited by --extract_max_keys={max_keys})")
+        print(f"To extract ALL keys, use: --extract_max_keys={total_private_keys}")
 
     return extracted_keys
+
+
+def count_wallet_keys(wallet_path, password="1234"):
+    """Count total number of private keys in a wallet without extracting them"""
+    print(f"Counting keys in {wallet_path}")
+    
+    import tempfile
+    import shutil
+    
+    # Create a temporary directory to isolate the database environment
+    temp_dir = tempfile.mkdtemp(prefix="pywallet_count_")
+    temp_wallet_path = None
+    db_env = None
+    db = None
+    
+    try:
+        # Copy wallet to temporary directory to avoid conflicts
+        temp_wallet_path = os.path.join(temp_dir, "temp_wallet.dat")
+        shutil.copy2(wallet_path, temp_wallet_path)
+        
+        # Clean any existing __db.* files in the temp directory
+        for file in os.listdir(temp_dir):
+            if file.startswith('__db.'):
+                os.remove(os.path.join(temp_dir, file))
+        
+        # Try opening the database (use same logic as extract_advanced)
+        try:
+            # Simple approach: Try to open database without environment
+            db = DB()
+            db.open(temp_wallet_path, "main", DB_BTREE, DB_RDONLY)
+            print("Successfully opened wallet database (direct mode)")
+        except Exception as e1:
+            print(f"Direct open failed: {e1}, trying with environment...")
+            
+            # Create a minimal database environment in the temporary directory
+            db_env = DBEnv(0)
+            
+            try:
+                db_env.open(temp_dir, DB_CREATE | DB_INIT_MPOOL)
+                db = DB(db_env)
+                db.open("temp_wallet.dat", "main", DB_BTREE, DB_RDONLY)
+                print("Successfully opened wallet database (minimal environment)")
+            except Exception as e2:
+                print(f"Minimal environment failed: {e2}, trying full environment...")
+                
+                try:
+                    db_env.close()
+                except:
+                    pass
+                
+                db_env = DBEnv(0)
+                db_env.set_lk_detect(DB_LOCK_DEFAULT)
+                
+                try:
+                    db_env.open(temp_dir,
+                                DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD)
+                    db = DB(db_env)
+                    db.open("temp_wallet.dat", "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+                    print("Successfully opened wallet database (full environment)")
+                except Exception as e3:
+                    print(f"Full environment failed: {e3}")
+                    raise e3
+        
+        # Count all records and private keys
+        cursor = db.cursor()
+        rec = cursor.first()
+        
+        total_records = 0
+        total_private_keys = 0
+        has_master_key = False
+        master_key_info = {}
+        
+        print("Analyzing wallet structure...")
+        
+        while rec:
+            key, value = rec
+            total_records += 1
+            
+            # Count private keys (ckey records)
+            if b'ckey' in key:
+                total_private_keys += 1
+            
+            # Check for master key
+            elif b'mkey' in key:
+                has_master_key = True
+                try:
+                    # Parse master key information
+                    encrypted_master_key = value[:48]
+                    salt = value[48:56]
+                    iterations_bytes = value[56:60]
+                    iterations = struct.unpack('<I', iterations_bytes)[0]
+                    
+                    master_key_info = {
+                        'encrypted_key': binascii.hexlify(encrypted_master_key).decode('ascii'),
+                        'salt': binascii.hexlify(salt).decode('ascii'),
+                        'iterations': iterations
+                    }
+                except:
+                    pass
+                
+            rec = cursor.next()
+        
+        cursor.close()
+        db.close()
+        if db_env:
+            db_env.close()
+        
+        # Clean up temporary directory
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        # Print results
+        print(f"\nWALLET KEY COUNT ANALYSIS:")
+        print(f"=========================")
+        print(f"Wallet File: {wallet_path}")
+        print(f"Total Database Records: {total_records}")
+        print(f"Total Private Keys Found: {total_private_keys}")
+        print(f"Has Master Key (Encrypted): {'Yes' if has_master_key else 'No'}")
+        
+        if has_master_key and master_key_info:
+            print(f"Master Key Iterations: {master_key_info.get('iterations', 'Unknown')}")
+            print(f"Encryption: AES-256-CBC with PBKDF2 key derivation")
+        
+        print(f"\nTo extract ALL {total_private_keys} keys, use:")
+        print(f"./run_pywallet.sh --extract_advanced -w {wallet_path} --extract_password=YOUR_PASSWORD --extract_output=all_keys.txt --extract_max_keys={total_private_keys}")
+        
+        return {
+            'total_records': total_records,
+            'total_private_keys': total_private_keys,
+            'has_master_key': has_master_key,
+            'master_key_info': master_key_info
+        }
+        
+    except Exception as e:
+        print(f"Error analyzing wallet: {str(e)}")
+        # Clean up
+        if db:
+            try:
+                db.close()
+            except:
+                pass
+        if db_env:
+            try:
+                db_env.close()
+            except:
+                pass
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return None
 
 
 def detect_wallet_format(wallet_path):
@@ -5605,6 +5785,9 @@ if __name__ == '__main__':
     parser.add_option("--extract_max_keys", dest="extract_max_keys", type="int", default=10,
                       help="maximum number of keys to extract (default: 10)")
 
+    parser.add_option("--count_keys", dest="count_keys", action="store_true",
+                      help="count total number of private keys in wallet without extracting them (use with -w wallet.dat)")
+
     parser.add_option("--auto_detect", dest="auto_detect", action="store_true",
                       help="automatically detect wallet format and use appropriate extraction method")
 
@@ -5636,6 +5819,26 @@ if __name__ == '__main__':
         whitepaper()
         exit()
 
+    # Handle key counting mode
+    if options.count_keys:
+        if not options.walletfile:
+            print("ERROR: You must specify a wallet file with -w/--wallet when using --count_keys")
+            exit(1)
+
+        wallet_path = options.walletfile
+        if not os.path.exists(wallet_path):
+            print(f"ERROR: Wallet file not found: {wallet_path}")
+            exit(1)
+
+        print(f"Analyzing wallet: {wallet_path}")
+        result = count_wallet_keys(wallet_path, options.extract_password)
+        
+        if result:
+            print("\nKey count analysis completed successfully!")
+        else:
+            print("Key count analysis failed!")
+        exit()
+
     # Handle advanced extraction mode
     if options.extract_advanced:
         if not options.walletfile:
@@ -5653,19 +5856,117 @@ if __name__ == '__main__':
         print(f"Starting advanced extraction from {wallet_path}")
         print(f"Output file: {options.extract_output}")
         print(f"Password: {options.extract_password}")
-        print(f"Max keys: {options.extract_max_keys}")
+        
+        # First, count the available keys to inform the user
+        print("\n" + "="*50)
+        print("STEP 1: Analyzing wallet to count available keys...")
+        print("="*50)
+        
+        key_count_result = count_wallet_keys(wallet_path, options.extract_password)
+        
+        if not key_count_result:
+            print("ERROR: Could not analyze wallet. Cannot proceed with extraction.")
+            exit(1)
+        
+        total_keys = key_count_result['total_private_keys']
+        
+        # Determine how many keys to extract
+        keys_to_extract = options.extract_max_keys
+        
+        # If user didn't specify max_keys or used default, ask them
+        if options.extract_max_keys == 10:  # Default value
+            print("\n" + "="*50)
+            print("STEP 2: Choose number of keys to extract")
+            print("="*50)
+            print(f"Your wallet contains {total_keys} total private keys.")
+            print(f"Current default: {options.extract_max_keys} keys")
+            print()
+            print("Options:")
+            print(f"  1. Extract all {total_keys} keys")
+            print(f"  2. Extract first 10 keys (default)")
+            print(f"  3. Extract first 20 keys")
+            print(f"  4. Extract first 50 keys")
+            print(f"  5. Specify custom number")
+            print()
+            
+            try:
+                choice = input("Enter your choice (1-5): ").strip()
+                
+                if choice == '1':
+                    keys_to_extract = total_keys
+                    print(f"✓ Will extract ALL {keys_to_extract} keys")
+                elif choice == '2':
+                    keys_to_extract = 10
+                    print(f"✓ Will extract first {keys_to_extract} keys")
+                elif choice == '3':
+                    keys_to_extract = 20
+                    print(f"✓ Will extract first {keys_to_extract} keys")
+                elif choice == '4':
+                    keys_to_extract = 50
+                    print(f"✓ Will extract first {keys_to_extract} keys")
+                elif choice == '5':
+                    while True:
+                        try:
+                            custom_num = input(f"Enter number of keys to extract (1-{total_keys}): ").strip()
+                            keys_to_extract = int(custom_num)
+                            if 1 <= keys_to_extract <= total_keys:
+                                print(f"✓ Will extract {keys_to_extract} keys")
+                                break
+                            else:
+                                print(f"Please enter a number between 1 and {total_keys}")
+                        except ValueError:
+                            print("Please enter a valid number")
+                else:
+                    print("Invalid choice. Using default: 10 keys")
+                    keys_to_extract = 10
+                    
+            except KeyboardInterrupt:
+                print("\nOperation cancelled by user.")
+                exit(0)
+            except:
+                print("Using default: 10 keys")
+                keys_to_extract = 10
+        else:
+            print(f"Using specified max_keys: {keys_to_extract}")
+        
+        # Validate the number
+        if keys_to_extract > total_keys:
+            print(f"WARNING: You requested {keys_to_extract} keys, but wallet only contains {total_keys} keys.")
+            keys_to_extract = total_keys
+            print(f"Adjusting to extract all {keys_to_extract} keys.")
+        
+        print(f"\n" + "="*50)
+        print("STEP 3: Extracting keys...")
+        print("="*50)
+        print(f"Extracting {keys_to_extract} out of {total_keys} total keys")
+        print()
 
         success = extract_wallet_keys_advanced(
             wallet_path,
             options.extract_output,
             options.extract_password,
-            options.extract_max_keys
+            keys_to_extract
         )
 
         if success:
-            print("Advanced extraction completed successfully!")
+            print(f"\n" + "="*50)
+            print("✅ EXTRACTION COMPLETED SUCCESSFULLY!")
+            print("="*50)
+            print(f"📁 Output file: {options.extract_output}")
+            print(f"🔑 Keys extracted: {keys_to_extract} out of {total_keys} total")
+            print(f"📊 Percentage: {(keys_to_extract/total_keys*100):.1f}% of wallet")
+            
+            if keys_to_extract < total_keys:
+                remaining = total_keys - keys_to_extract
+                print(f"⚠️  Remaining keys: {remaining} keys not extracted")
+                print(f"💡 To extract ALL keys, use: --extract_max_keys={total_keys}")
+            else:
+                print("✅ ALL keys from wallet have been extracted!")
+            print("="*50)
         else:
-            print("Advanced extraction failed!")
+            print(f"\n" + "="*50)
+            print("❌ EXTRACTION FAILED!")
+            print("="*50)
         exit()
 
     # Handle auto-detection mode

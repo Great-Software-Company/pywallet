@@ -55,8 +55,11 @@ pip install bsddb3 pycrypto cryptography
 #### For Intact Wallet Files (Recommended)
 If you have a complete, non-corrupted `wallet.dat` file and know the password:
 ```bash
-# Extract keys from intact wallet with known password
+# Interactive extraction - shows total keys and lets you choose how many to extract
 ./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=YOUR_PASSWORD --extract_output=keys.txt
+
+# Or specify exact number of keys to extract (non-interactive)
+./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=YOUR_PASSWORD --extract_output=keys.txt --extract_max_keys=25
 ```
 
 #### For Damaged/Lost Wallet Data (Advanced)
@@ -71,14 +74,63 @@ If your wallet is corrupted, deleted, or you're scanning raw disk data:
 # Show help
 ./run_pywallet.sh --help
 
-# Extract from intact wallet (FAST - use this if you have a working wallet.dat)
+# Interactive extraction (RECOMMENDED - analyzes wallet and lets you choose)
 ./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=1234 --extract_output=keys.txt
+
+# Non-interactive extraction with specific number
+./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=1234 --extract_output=keys.txt --extract_max_keys=50
 
 # Recover keys from damaged data (SLOW - only use for actual recovery)
 ./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --output_keys=recovered_keys.txt
 
 # Traditional wallet recovery
 ./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --recov_outputdir=./recovery
+```
+
+### Interactive Extraction Workflow
+When you run extraction without specifying `--extract_max_keys`, the system will:
+
+1. **Analyze your wallet** - Count total available keys
+2. **Show you options** - Display total keys and extraction choices  
+3. **Let you choose** - Pick how many keys to extract
+4. **Extract precisely** - Get exactly what you requested
+5. **Show clear results** - Display extraction summary with percentages
+
+**Example Interactive Session:**
+```
+STEP 1: Analyzing wallet to count available keys...
+==================================================
+WALLET KEY COUNT ANALYSIS:
+=========================
+Total Private Keys Found: 157
+
+STEP 2: Choose number of keys to extract
+==================================================
+Your wallet contains 157 total private keys.
+
+Options:
+  1. Extract all 157 keys
+  2. Extract first 10 keys (default)
+  3. Extract first 20 keys
+  4. Extract first 50 keys
+  5. Specify custom number
+
+Enter your choice (1-5): 1
+✓ Will extract ALL 157 keys
+
+STEP 3: Extracting keys...
+==================================================
+Extracting 157 out of 157 total keys
+
+[extraction process...]
+
+✅ EXTRACTION COMPLETED SUCCESSFULLY!
+==================================================
+📁 Output file: keys.txt
+🔑 Keys extracted: 157 out of 157 total
+📊 Percentage: 100.0% of wallet
+✅ ALL keys from wallet have been extracted!
+==================================================
 ```
 
 ### Manual Usage
@@ -118,6 +170,14 @@ Limit the number of keys to extract.
 - **Default**: 10 keys (if not specified)
 - **Useful for**: Testing or limiting output size
 - **Note**: You can omit this parameter to extract up to 10 keys by default
+
+#### `--count_keys` (Analyze Only)
+Count total number of private keys in wallet without extracting them.
+- **Usage**: `--count_keys -w wallet.dat`
+- **Purpose**: Find out how many total keys are available before extraction
+- **Output**: Shows total records, total private keys, and encryption info
+- **Provides**: Exact command to extract ALL keys found
+- **No password required**: Only counts keys, doesn't decrypt them
 
 ### Recovery Options (For Damaged Data)
 
@@ -203,6 +263,14 @@ If you use `--recover` on an intact wallet file:
 - **This is the wrong tool for the job!**
 
 ## Examples
+
+### 0. Count Keys Before Extraction (Recommended First Step)
+```bash
+# Find out how many keys are in your wallet
+./run_pywallet.sh --count_keys -w wallets/wallet1.dat
+# Output will show: "Total Private Keys Found: 157" 
+# and provide exact command to extract all keys
+```
 
 ### 1. Extract Keys from Intact Wallet (Recommended)
 ```bash
