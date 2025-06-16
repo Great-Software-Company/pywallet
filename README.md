@@ -41,7 +41,7 @@ source pywallet_build_env/bin/activate
 
 # Install Python dependencies
 pip install --upgrade pip
-pip install bsddb3
+pip install bsddb3 pycrypto cryptography
 ```
 
 ## Usage

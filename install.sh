@@ -39,15 +39,28 @@ source pywallet_build_env/bin/activate
 # Upgrade pip
 pip install --upgrade pip
 
-# Install bsddb3
+# Install required dependencies
+echo "Installing bsddb3 (Berkeley DB support)..."
 pip install bsddb3
-
-if [ $? -eq 0 ]; then
-    echo "✓ Dependencies installed successfully"
-else
-    echo "Error: Failed to install dependencies"
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install bsddb3"
     exit 1
 fi
+
+echo "Installing cryptographic libraries..."
+pip install pycrypto
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install pycrypto"
+    exit 1
+fi
+
+pip install cryptography
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install cryptography"
+    exit 1
+fi
+
+echo "✓ All dependencies installed successfully (bsddb3, pycrypto, cryptography)"
 
 # Test the installation
 echo "Testing installation..."
