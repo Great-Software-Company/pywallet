@@ -16,6 +16,7 @@ This is an improved version of pywallet with full Python 3 support and enhanced 
 - **Better error handling**: Clearer error messages and validation
 - **WIF format support**: Recovered keys are now also output in WIF format for easy import into other wallets
 - **Berkeley DB BDB2509 Error Fix**: Automatic resolution of database environment conflicts using temporary isolation
+- **Fixed UI prompt ordering**: Passphrase instructions now display properly before the input prompt
 
 ### 3. **Backward Compatibility** ✅
 - All original functionality preserved
@@ -351,6 +352,13 @@ The BDB2509 error occurred because the Berkeley DB environment was being opened 
 3. **Comprehensive Cleanup**: All temporary files and database environments are properly closed and removed
 
 This ensures that wallet extractions never interfere with each other or leave stale environment files.
+
+### UI/Prompt Display Issues
+
+**✅ Fixed: Passphrase prompt instructions appearing after input request**
+- **Issue**: Previously, the instructions for entering passphrases would appear after the prompt, making it unclear what the user should enter
+- **Fix**: Added proper output buffering control to ensure instructions appear before the input prompt
+- **Applies to**: `--recover` command when asking for wallet passphrases
 
 ### Virtual Environment Issues
 ```bash

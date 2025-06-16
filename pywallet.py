@@ -5830,6 +5830,9 @@ if __name__ == '__main__':
         print('\nEnter the possible passphrases used in your deleted wallets.')
         print("Don't forget that more passphrases = more time to test the possibilities.")
         print('Write one passphrase per line and end with an empty line.')
+        sys.stdout.flush()  # Ensure the instructions are displayed before getpass prompt
+        import time
+        time.sleep(0.1)  # Small delay to ensure proper output ordering
         while p != '':
             p = getpass.getpass("Possible passphrase: ")
             if p != '':
@@ -5963,6 +5966,7 @@ if __name__ == '__main__':
                     print("Using passphrase provided via --recov_passphrase option")
                 else:
                     passphraseRecov = None
+                    sys.stdout.flush()  # Ensure any previous output is displayed
                     while not passphraseRecov:
                         passphraseRecov = getpass.getpass(
                             "Enter the passphrase for the wallet that will contain all the recovered keys%s: " % (
