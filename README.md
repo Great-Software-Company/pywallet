@@ -35,7 +35,8 @@ chmod +x install.sh
 ### Manual Setup
 ```bash
 # Install system dependencies (Ubuntu/Debian)
-sudo apt-get install libdb-dev python3-dev build-essential python3-venv
+sudo apt-get update
+sudo apt-get install libdb-dev python3-dev build-essential python3-venv libssl-dev libffi-dev
 
 # Create virtual environment
 python3 -m venv pywallet_build_env
@@ -43,8 +44,13 @@ source pywallet_build_env/bin/activate
 
 # Install Python dependencies
 pip install --upgrade pip
-pip install bsddb3 pycrypto cryptography
+pip install bsddb3 pycryptodome cryptography
+
+# Test crypto installation
+python3 -c "from Crypto.Cipher import AES; print('✓ Cryptographic libraries working!')"
 ```
+
+**Note:** The quick setup script (`./install.sh`) now handles all these steps automatically, including system dependency detection for different operating systems (Ubuntu/Debian, CentOS/RHEL, macOS).
 
 ## Usage
 
@@ -368,6 +374,86 @@ KyBwDMRRz5Xd1XVo4JPcgoLiC9UYFNRmYEjXQvBKBBsRZtCNUPWM
 
 ## Troubleshooting
 
+### "Cipher is not defined" Error
+If you get an error like: `Error parsing master key: name 'Cipher' is not defined`
+
+**Cause:** The cryptographic libraries (pycryptodome or pycrypto) are not properly installed or not accessible.
+
+**✅ AUTOMATIC FIX:**
+The enhanced `install.sh` script now automatically handles this by:
+- Installing system dependencies (libssl-dev, libffi-dev, python3-dev)
+- Installing both pycryptodome and cryptography libraries
+- Testing the installation before completion
+- Providing detailed error messages and fixes
+
+**Manual Solutions:**
+
+1. **Quick Fix (Most Common):**
+   ```bash
+   # Activate the virtual environment
+   source pywallet_build_env/bin/activate
+   
+   # Reinstall pycryptodome
+   pip install --force-reinstall pycryptodome
+   
+   # Test if it works
+   python3 -c "from Crypto.Cipher import AES; print('✓ Cipher test passed!')"
+   ```
+
+2. **Clean Installation:**
+   ```bash
+   # Activate virtual environment
+   source pywallet_build_env/bin/activate
+   
+   # Remove conflicting packages
+   pip uninstall -y pycrypto pycryptodome
+   
+   # Install fresh
+   pip install pycryptodome
+   ```
+
+3. **System Dependencies Fix:**
+   ```bash
+   # Install required system libraries
+   sudo apt-get install libssl-dev libffi-dev python3-dev build-essential
+   
+   # Then reinstall crypto libraries
+   source pywallet_build_env/bin/activate
+   pip install --force-reinstall pycryptodome cryptography
+   ```
+
+4. **Alternative Installation Method:**
+   ```bash
+   # If pycryptodome fails, try the older pycrypto
+   pip install pycrypto
+   ```
+
+5. **Verify Installation:**
+   ```bash
+   python3 -c "
+   try:
+       from Crypto.Cipher import AES
+       print('✓ Crypto.Cipher available')
+   except ImportError:
+       try:
+           from Cryptodome.Cipher import AES
+           print('✓ Cryptodome.Cipher available')
+       except ImportError:
+           print('✗ Neither Crypto nor Cryptodome available')
+   "
+   ```
+
+**Why This Error Occurs:**
+- Missing system development libraries (libssl-dev, libffi-dev)
+- Conflicting pycrypto/pycryptodome installations
+- Incomplete pip installation due to compilation errors
+- Virtual environment not activated
+
+**If Still Failing:**
+1. Delete the virtual environment: `rm -rf pywallet_build_env`
+2. Run the installer again: `./install.sh`
+3. The enhanced installer will handle all dependencies automatically
+
 ### Berkeley DB Error (BDB2509)
 If you get an error like: `Error opening wallet: (22, 'Invalid argument -- BDB2509 the log files from a database environment')`
 
@@ -420,6 +506,56 @@ The BDB2509 error occurred because the Berkeley DB environment was being opened 
 3. **Comprehensive Cleanup**: All temporary files and database environments are properly closed and removed
 
 This ensures that wallet extractions never interfere with each other or leave stale environment files.
+
+### Cipher Not Defined Error
+If you get an error like: `Error parsing master key: name 'Cipher' is not defined`
+
+**Error Details:**
+This error indicates that the extraction process failed due to a missing cryptographic module. The `Cipher` class, which is part of a cryptographic library, is not available in your Python environment. This class is typically provided by libraries such as `pycrypto`, `PyCryptodome`, or `cryptography`.
+
+**Steps to Resolve:**
+
+1. **Verify Python Environment**: Ensure that you are using the correct Python environment intended for Pywallet. If you set up a virtual environment as suggested in the documentation, make sure it is activated:
+   ```bash
+   source pywallet_build_env/bin/activate
+   ```
+
+2. **Install Required Cryptography Libraries**: Pywallet requires certain cryptography libraries. Install the necessary libraries:
+   ```bash
+   pip install pycryptodome
+   ```
+   
+   Alternatively, if you suspect other libraries might be needed, you can install the cryptography library:
+   ```bash
+   pip install cryptography
+   ```
+
+3. **Update Dependencies**: Ensure that all Python dependencies are up to date:
+   ```bash
+   pip install --upgrade pip
+   ```
+
+4. **Review Pywallet Setup**: Ensure that you have followed all steps in the installation section of Pywallet's documentation, including installing system dependencies like `libdb-dev`, `python3-dev`, and `build-essential` if necessary:
+   ```bash
+   sudo apt-get install libdb-dev python3-dev build-essential python3-venv
+   ```
+
+5. **Reinstall All Dependencies**: If the issue persists, try reinstalling all dependencies:
+   ```bash
+   # Activate virtual environment
+   source pywallet_build_env/bin/activate
+   
+   # Reinstall all cryptographic libraries
+   pip uninstall pycrypto pycryptodome cryptography -y
+   pip install pycryptodome cryptography
+   ```
+
+6. **Rerun the Extraction**: After verifying and setting up the necessary environment and dependencies, attempt to run the extraction again:
+   ```bash
+   ./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=1234 --extract_output=keys.txt
+   ```
+
+**Note**: This error typically occurs when the Python environment is incomplete or when cryptographic dependencies were not properly installed during the initial setup. Following the installation steps in order should prevent this issue.
 
 ### UI/Prompt Display Issues
 
