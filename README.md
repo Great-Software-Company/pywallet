@@ -68,11 +68,25 @@ If you have a complete, non-corrupted `wallet.dat` file and know the password:
 ./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=YOUR_PASSWORD --extract_output=keys.txt --extract_max_keys=25
 ```
 
-#### For Damaged/Lost Wallet Data (Advanced)
-If your wallet is corrupted, deleted, or you're scanning raw disk data:
+#### CHOOSE THE RIGHT METHOD:
+
+**🟢 For INTACT wallet files (RECOMMENDED):**
 ```bash
-# Recover keys from damaged/corrupted data
+# Fast, gets ALL keys, works with complete wallet.dat files
+./run_pywallet.sh --extract_advanced -w wallets/wallet1.dat --extract_password=1234 --extract_output=keys.txt
+```
+
+**🔴 For DAMAGED wallet files ONLY:**
+```bash
+# Slow recovery from corrupted/damaged data - ONLY use if wallet file is broken
 ./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --output_keys=recovered_keys.txt
+```
+
+**❓ Not sure which to use?** Run this first:
+```bash
+./run_pywallet.sh --count_keys -w your_wallet.dat
+# If this works, your wallet is intact → use --extract_advanced
+# If this fails, your wallet is damaged → use --recover
 ```
 
 ### Using the Run Script (Recommended)

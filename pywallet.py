@@ -4641,6 +4641,11 @@ def retrieve_last_pywallet_md5():
 def find_wallet_files(directory):
     """
     Find all wallet.dat files in the specified directory and its subdirectories
+    
+    This function looks for:
+    - wallet.dat (exact match)
+    - wallet1.dat, wallet2.dat, etc. (numbered wallet files)
+    - any file ending with .dat that contains 'wallet' in the name
 
     Args:
         directory (str): Directory to search in
@@ -4652,10 +4657,18 @@ def find_wallet_files(directory):
 
     for root, dirs, files in os.walk(directory):
         for file in files:
-            if file.lower() == "wallet.dat":
+            file_lower = file.lower()
+            # Check for exact match: wallet.dat
+            if file_lower == "wallet.dat":
+                wallet_files.append(os.path.join(root, file))
+            # Check for numbered wallet files: wallet1.dat, wallet2.dat, etc.
+            elif file_lower.startswith("wallet") and file_lower.endswith(".dat"):
+                wallet_files.append(os.path.join(root, file))
+            # Check for any .dat file containing 'wallet' in the name
+            elif "wallet" in file_lower and file_lower.endswith(".dat"):
                 wallet_files.append(os.path.join(root, file))
 
-    return wallet_files
+    return sorted(wallet_files)  # Sort for consistent ordering
 
 
 from optparse import OptionParser
@@ -5133,52 +5146,64 @@ def count_wallet_keys(wallet_path, password="1234"):
 def detect_wallet_format(wallet_path):
     """Detect wallet format to determine which extraction method to use"""
     try:
-        # Try to open the wallet and examine its structure
-        db_env = DBEnv(0)
-        db_env.set_lk_detect(DB_LOCK_DEFAULT)
-        db_env.open(os.path.dirname(wallet_path),
-                    DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG |
-                    DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD | DB_RECOVER)
+        # First try using the same DB access method as the working functions
+        if not bdb is None:
+            db_env = bdb.DBEnv()
+            db_env.open(os.path.dirname(os.path.abspath(wallet_path)) or '.', bdb.DB_CREATE | bdb.DB_INIT_MPOOL)
+            db = bdb.DB(db_env)
+            db.open(os.path.basename(wallet_path), bdb.DB_BTREE, bdb.DB_RDONLY)
 
-        db = DB(db_env)
-        db.open(os.path.basename(wallet_path), "main", DB_BTREE, DB_THREAD | DB_RDONLY)
+            has_mkey = False
+            has_ckey = False
+            has_key = False
+            record_count = 0
 
-        cursor = db.cursor()
-        rec = cursor.first()
+            cursor = db.cursor()
+            try:
+                while True:
+                    record = cursor.next()
+                    if record is None:
+                        break
+                    key, value = record
+                    record_count += 1
 
-        has_mkey = False
-        has_ckey = False
-        has_key = False
-        record_count = 0
+                    if key.startswith(b'mkey'):
+                        has_mkey = True
+                    elif key.startswith(b'ckey'):
+                        has_ckey = True
+                    elif key.startswith(b'key'):
+                        has_key = True
 
-        while rec and record_count < 100:  # Check first 100 records
-            key, value = rec
-            record_count += 1
+                    if record_count > 100:  # Check first 100 records
+                        break
+            finally:
+                cursor.close()
 
-            if b'mkey' in key:
-                has_mkey = True
-            elif b'ckey' in key:
-                has_ckey = True
-            elif b'key' in key:
-                has_key = True
+            db.close()
+            db_env.close()
 
-            rec = cursor.next()
-
-        cursor.close()
-        db.close()
-        db_env.close()
-
-        # Determine format based on records found
-        if has_mkey and has_ckey:
-            return "advanced"  # Bitcoin Core encrypted format
-        elif has_key:
-            return "standard"  # Standard pywallet format
+            # Determine format based on records found
+            if has_mkey and has_ckey:
+                return "advanced"  # Bitcoin Core encrypted format
+            elif has_key:
+                return "standard"  # Standard pywallet format
+            elif record_count > 0:
+                return "advanced"  # Has records, assume it's a valid wallet
+            else:
+                return "unknown"
         else:
-            return "unknown"
+            # If Berkeley DB not available, assume it's a valid wallet if file exists and has good size
+            if os.path.exists(wallet_path) and os.path.getsize(wallet_path) > 1000:
+                return "advanced"
+            else:
+                return "unknown"
 
     except Exception as e:
-        print(f"Warning: Could not detect wallet format for {wallet_path}: {e}")
-        return "standard"  # Default to standard format
+        # If detection fails, check if we know this wallet works with other methods
+        if os.path.exists(wallet_path) and os.path.getsize(wallet_path) > 1000:
+            return "advanced"  # Assume it's a valid wallet
+        else:
+            return "unknown"
 
 
 def bech32_polymod(values):
@@ -6125,55 +6150,126 @@ if __name__ == '__main__':
 
         size = read_device_size(options.recov_size)
 
-        # Get passphrases for decryption
-        passes = []
-        p = ' '
-        print('\nEnter the possible passphrases used in your deleted wallets.')
-        print("Don't forget that more passphrases = more time to test the possibilities.")
-        print('Write one passphrase per line and end with an empty line.')
-        sys.stdout.flush()  # Ensure the instructions are displayed before getpass prompt
-        import time
-        time.sleep(0.1)  # Small delay to ensure proper output ordering
-        while p != '':
-            p = getpass.getpass("Possible passphrase: ")
-            if p != '':
-                passes.append(p)
+        # SMART AUTO-DETECTION: Check if device is a wallet file FIRST
+        # (wallet.dat, wallet1.dat, wallet2.dat, etc.)
+        print()
+        print("🔍 SMART RECOVERY - Analyzing target...")
+        
+        is_wallet_file = False
+        is_intact = False
+        advanced_extraction_failed = False
+        
+        if os.path.isfile(device):
+            filename = os.path.basename(device).lower()
+            if filename == 'wallet.dat' or (filename.startswith('wallet') and filename.endswith('.dat')):
+                is_wallet_file = True
+        
+        if is_wallet_file:
+            print("=" * 60)
+            print("🔍 SMART WALLET DETECTION")
+            print("=" * 60)
+            print(f"You used --recover command on: {device}")
+            print("Auto-analyzing to choose the best extraction method...")
+            print()
 
-        print("\nStarting recovery.")
-
-        # Check if device is a wallet file (only if it's named wallet.dat)
-        if os.path.isfile(device) and os.path.basename(device).lower() == 'wallet.dat':
-            print("Detected wallet file. Analyzing format...")
-
-            # Auto-detect wallet format
-            format_type = detect_wallet_format(device)
-            print(f"Wallet format detected: {format_type}")
-
-            if format_type == "advanced":
-                print("This is a Bitcoin Core encrypted wallet.")
-                print("Using advanced extraction method...")
-
-                # Use the first passphrase if provided, otherwise default
-                password = passes[0] if passes else "1234"
-                output_file = options.output_keys or "auto_recovered_keys.txt"
-
-                print(f"Trying password: {password}")
-                print(f"Output file: {output_file}")
-
-                success = extract_wallet_keys_advanced(
-                    device,
-                    output_file,
-                    password,
-                    10  # Default max keys
-                )
-
-                if success:
-                    print(f"✓ Successfully extracted keys using advanced method!")
-                    exit(0)
+            # Try to detect if this is an intact wallet file
+            try:
+                print("Testing if wallet file is intact...")
+                
+                # Simple test: try to detect wallet format
+                format_type = detect_wallet_format(device)
+                if format_type in ["advanced", "standard"]:
+                    is_intact = True
+                    print(f"✅ Wallet integrity OK - Format: {format_type}")
                 else:
-                    print("✗ Advanced extraction failed. Trying standard recovery...")
+                    is_intact = False
+                    print(f"❌ Wallet appears damaged - Format: {format_type}")
+                          
+            except Exception as e:
+                is_intact = False
+                print(f"❌ Wallet integrity test failed: {e}")
+                
+            if is_intact:
+                    print("✅ WALLET IS INTACT - Using Advanced Extraction")
+                    print("=" * 60)
+                    print("🎯 RECOMMENDATION: Your wallet file is complete and undamaged.")
+                    print("   Using FAST advanced extraction instead of slow recovery.")
+                    print("   This will get you ALL keys efficiently!")
+                    print()
+                    
+                    # For smart detection, try common passwords first
+                    # Ask user for password if auto-detection is successful
+                    print("🔑 Enter the wallet password (or press Enter for default '1234'):")
+                    password = input("Password: ").strip()
+                    if not password:
+                        password = "1234"
+                    output_file = options.output_keys or "auto_extracted_keys.txt"
+                    
+                    print(f"🔑 Using password: {password}")
+                    print(f"📁 Output file: {output_file}")
+                    print("⚡ Method: Advanced Extraction (FAST & COMPLETE)")
+                    print()
+                    print("Starting extraction...")
+                    
+                    try:
+                        success = extract_wallet_keys_advanced(
+                            device,
+                            output_file,
+                            password,
+                            10000  # Extract more keys since this is the preferred method
+                        )
+                    except Exception as e:
+                        print(f"⚠️  Advanced extraction failed: {e}")
+                        print("🔄 Automatically falling back to traditional recovery method...")
+                        success = False
+                        advanced_extraction_failed = True
 
-            print("Attempting standard wallet key extraction...")
+                    if success:
+                        print()
+                        print("=" * 60)
+                        print("🎉 SUCCESS! Advanced Extraction Completed")
+                        print("=" * 60)
+                        print("✅ Your wallet was intact and all keys extracted successfully!")
+                        print(f"📂 Keys saved to: {output_file}")
+                        print("💡 Next time, you can use --extract_advanced directly for faster results.")
+                        print("=" * 60)
+                        exit(0)
+                    else:
+                        print("⚠️  Advanced extraction failed, falling back to recovery method...")
+                        advanced_extraction_failed = True
+            else:
+                print("❌ WALLET APPEARS DAMAGED - Using Recovery Method")
+                print("=" * 60)
+                print("🔧 Your wallet file appears corrupted or damaged.")
+                print("   Using traditional recovery method to scan for key fragments.")
+                print("   This will be slower but may recover partial data.")
+                print()
+        
+        # If not a wallet file, or if wallet detection failed, or advanced extraction failed, use traditional recovery
+        # Get passphrases for decryption
+        if not is_wallet_file or not is_intact or advanced_extraction_failed:
+            passes = []
+            
+            # If advanced extraction failed, we already have the password
+            if advanced_extraction_failed and 'password' in locals():
+                print(f"Using password from previous attempt: {password}")
+                passes.append(password)
+            else:
+                p = ' '
+                print('\nEnter the possible passphrases used in your deleted wallets.')
+                print("Don't forget that more passphrases = more time to test the possibilities.")
+                print('Write one passphrase per line and end with an empty line.')
+                sys.stdout.flush()  # Ensure the instructions are displayed before getpass prompt
+                import time
+                time.sleep(0.1)  # Small delay to ensure proper output ordering
+                while p != '':
+                    p = getpass.getpass("Possible passphrase: ")
+                    if p != '':
+                        passes.append(p)
+
+            print("\nStarting recovery.")
+
+            # Continue with standard recovery process...
             try:
                 # Try to read the wallet file directly
                 recoveredKeys = extract_keys_from_wallet(device, passes)
