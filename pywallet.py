@@ -6247,8 +6247,9 @@ if __name__ == '__main__':
         
         # If not a wallet file, or if wallet detection failed, or advanced extraction failed, use traditional recovery
         # Get passphrases for decryption
+        passes = []  # Initialize passes list for all cases
+        
         if not is_wallet_file or not is_intact or advanced_extraction_failed:
-            passes = []
             
             # If advanced extraction failed, we already have the password
             if advanced_extraction_failed and 'password' in locals():
