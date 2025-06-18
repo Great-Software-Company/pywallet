@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 
-pywversion = "2.2-py3-improved"
+pywversion = "2.3-gsc"
 never_update = False
 
 #
-# jackjack's pywallet.py
-# https://github.com/jackjack-jj/pywallet
-# forked from Joric's pywallet.py
+# Great-Software-Company's pywallet.py
+# https://github.com/Great-Software-Company/pywallet
+# forked from Jouni's pywallet.py
 #
 
 
