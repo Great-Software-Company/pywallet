@@ -3809,7 +3809,7 @@ def read_wallet(json_db, db_env, walletfile, print_wallet, print_wallet_transact
             json_db['minversion'] = d['minversion']
 
         elif type == b"setting":
-            if not json_db.has_key('settings'):
+            if 'settings' not in json_db:
                 json_db['settings'] = Bdict({})
             json_db["settings"][d['setting']] = d['value']
 
@@ -3828,7 +3828,7 @@ def read_wallet(json_db, db_env, walletfile, print_wallet, print_wallet_transact
                                     'private': binascii.hexlify(d['private_key'])})
 
         elif type == b"wkey":
-            if not json_db.has_key('wkey'): json_db['wkey'] = []
+            if 'wkey' not in json_db: json_db['wkey'] = []
             json_db['wkey']['created'] = d['created']
 
         elif type == b"pool":

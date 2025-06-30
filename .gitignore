@@ -31,3 +31,4 @@ wallet_format_detector.py
 wallets-1/
 Backup
 Backup/test_key_counting.sh
+venv
