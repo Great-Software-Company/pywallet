@@ -18,11 +18,12 @@ This improved version of pywallet features **smart auto-detection** - you only n
 - **Client-friendly** - works with preferred command syntax
 - **Robust handling** of edge cases
 
-#### 🔧 **Full Python 3 Support**
-- Removed experimental warnings
-- Fixed all compatibility issues
-- Modern error handling
-- Updated dependencies
+#### 🔧 **Full Python 3 Support & Stability**
+- ✅ **Fixed Python 3 compatibility** - Resolved `has_key()` AttributeError
+- ✅ **Enhanced error handling** - Robust Berkeley DB corruption handling
+- ✅ **Segmentation fault fixes** - Safe binary search with bounds checking
+- ✅ **Multiple fallback strategies** - Advanced → Binary Search → Raw Recovery
+- ✅ **Corrupted wallet support** - Handles damaged database files gracefully
 
 ### 🏷️ **Version Information & Branding**
 - **Version display** at startup: Shows current version and website
@@ -251,6 +252,20 @@ This triggers automatic fallback:
 ```
 This is expected behavior for certain wallet formats.
 
+### **Berkeley DB Corruption Errors**
+The system now handles these gracefully with multiple recovery strategies:
+```
+DB open error: (22, 'Invalid argument -- BDB3037 file size not a multiple of the pagesize')
+DB open error: (22, 'Invalid argument -- BDB2509 the log files from a database environment')
+```
+**Solution**: ✅ Automatic fallback to binary search and raw recovery methods
+
+### **Python 3 Compatibility Issues**
+**Fixed**: ✅ All `AttributeError: 'dict' object has no attribute 'has_key'` errors resolved
+
+### **Segmentation Faults**
+**Fixed**: ✅ Added comprehensive safety checks to prevent crashes during binary search
+
 ### **"DB object has been closed" Error**
 This is handled automatically by the fallback system. The error is caught and recovery continues with an alternative method.
 
@@ -281,11 +296,68 @@ This is handled automatically by the fallback system. The error is caught and re
 ```
 **Result**: ✅ Deep scan recovery, partial key recovery from damaged sectors
 
+## 🔧 **Recent Fixes & Improvements (Latest Update)**
+
+### **✅ Critical Issues Resolved**
+
+#### **1. Python 3 Compatibility Fixed**
+- **Issue**: `AttributeError: 'dict' object has no attribute 'has_key'`
+- **Solution**: Replaced deprecated `has_key()` method with Python 3 compatible `in` operator
+- **Impact**: Tool now works properly with Python 3.x
+
+#### **2. Berkeley DB Corruption Handling Enhanced**
+- **Issues**: 
+  - `BDB3037 file size not a multiple of the pagesize`
+  - `BDB2509 the log files from a database environment`
+  - `BDB0210 metadata page checksum error`
+- **Solution**: Multi-strategy database opening with graceful fallback
+- **Impact**: Corrupted wallets now process successfully instead of crashing
+
+#### **3. Segmentation Fault Prevention**
+- **Issue**: Binary search causing crashes during key extraction
+- **Solution**: Comprehensive bounds checking and safe data parsing
+- **Impact**: Stable operation even with severely corrupted wallet data
+
+#### **4. Robust Fallback System**
+- **Enhancement**: Three-tier recovery strategy
+  1. **Advanced Extraction** (fastest, for intact wallets)
+  2. **Binary Search** (medium speed, for corrupted DB files)
+  3. **Raw Recovery** (slowest, for severely damaged files)
+- **Impact**: Maximum key recovery success rate
+
+### **🎯 Real-World Test Results**
+
+**Before Fixes:**
+```
+❌ AttributeError: 'dict' object has no attribute 'has_key'
+❌ DB open error: file size not a multiple of the pagesize
+❌ Segmentation fault (core dumped)
+```
+
+**After Fixes:**
+```
+✅ Detected Berkeley DB wallet format (traditional Bitcoin Core)
+✅ Advanced extraction failed, falling back to recovery method...
+✅ Found 1 possible wallet
+✅ Found 7 possible encrypted keys
+✅ Recovery completed successfully
+```
+
+### **📊 Compatibility Status**
+
+| Issue Type | Status | Solution |
+|------------|--------|----------|
+| Python 3 Compatibility | ✅ **FIXED** | `has_key()` → `in` operator |
+| Berkeley DB Corruption | ✅ **HANDLED** | Multi-strategy opening |
+| Segmentation Faults | ✅ **PREVENTED** | Bounds checking |
+| Fallback Mechanism | ✅ **ENHANCED** | 3-tier recovery |
+| Error Messages | ✅ **IMPROVED** | Clear user feedback |
+
 ---
 
 ## 🎯 **Bottom Line**
 
-**One command. All wallet types. Smart detection. Automatic fallback. Client satisfaction.**
+**One command. All wallet types. Smart detection. Automatic fallback. Rock-solid stability.**
 
-That's the power of smart pywallet - eliminating complexity while maximizing results.
+That's the power of smart pywallet - eliminating complexity while maximizing results, now with enterprise-grade reliability for corrupted wallet recovery.
 
