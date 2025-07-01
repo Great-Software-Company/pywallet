@@ -67,11 +67,19 @@ python3 -c "from Crypto.Cipher import AES; print('✓ Cryptographic libraries wo
 ```
 
 **That's it!** The system automatically:
-1. 🔍 **Analyzes** your wallet file
-2. 🎯 **Detects** the optimal extraction method
-3. ⚡ **Attempts** fast extraction first (if wallet is intact)
-4. 🔄 **Falls back** to recovery mode (if needed)
+1. 🔍 **Analyzes** your wallet file or device
+2. 🎯 **For .dat files**: Tries targeted extraction first (fast method)
+3. ⚡ **Smart fallback**: Falls back to traditional recovery if needed
+4. 🔧 **For devices/raw data**: Uses traditional recovery method
 5. 📝 **Explains** what it's doing and why
+
+### **🆕 NEW: True Universal Command**
+The `--recover` command now works with **ANY** wallet type:
+- **Rwallet/wallet5.dat** → Automatically uses targeted extraction
+- **regular/wallet.dat** → Tries targeted first, then traditional recovery
+- **corrupted/wallet.dat** → Graceful fallback to recovery mode
+- **/dev/sda1** → Traditional device recovery
+- **Any file or device** → Automatically chooses the best method
 
 ### **Examples**
 
@@ -80,7 +88,12 @@ python3 -c "from Crypto.Cipher import AES; print('✓ Cryptographic libraries wo
 ./run_pywallet.sh --recover --recov_device=wallet.dat --output_keys=my_keys.txt
 ```
 
-#### Extract from wallet in directory:
+#### Extract from Rwallet (targeted extraction):
+```bash
+./run_pywallet.sh --recover --recov_device=RWT/wall.dat --output_keys=targeted_results.txt
+```
+
+#### Extract from any wallet directory:
 ```bash
 ./run_pywallet.sh --recover --recov_device=xtest/xtest1/wallet.dat --output_keys=recovered_keys.txt
 ```
@@ -89,6 +102,8 @@ python3 -c "from Crypto.Cipher import AES; print('✓ Cryptographic libraries wo
 ```bash
 ./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=100MB --output_keys=recovered_keys.txt
 ```
+
+**🎉 All examples use the SAME command format!** No more confusion about which method to use.
 
 ## 🧠 **How Smart Detection Works**
 

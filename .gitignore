@@ -32,7 +32,7 @@ wallets-1/
 Backup
 Backup/test_key_counting.sh
 venv
-Rwallet
+RWT
 direct_key_extractor.py
 fix_wallet_extraction.py
 safe_key_extractor.py

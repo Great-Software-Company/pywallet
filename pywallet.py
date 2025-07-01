@@ -54,7 +54,7 @@ def global_exception_handler(exctype, value, tb):
                     f.write("\n\n# WIF FORMAT KEYS:\n")
                     for i, hex_key in enumerate(hex_keys):
                         try:
-                            wif = privToWif(hex_key)
+                            wif = privToWif(hex_key, compressed=False)
                             f.write(f"{wif}\n")
                         except Exception as e:
                             f.write(f"# Error converting key to WIF: {e}\n")
@@ -182,7 +182,7 @@ def b58decode_btcwif(v):
     return hex(decimal)[2:]  # (remove "0x" prefix)
 
 
-def privToWif(priv, verbose=False):
+def privToWif(priv, compressed=False, verbose=False):
     ''' Produce a WIF from a private key in the form of an hex string '''
     # 1 - Take a private key
     _priv = priv.lower()  # just for aesthetics
@@ -190,25 +190,31 @@ def privToWif(priv, verbose=False):
 
     # 2 - Add a 0x80 byte in front of it
     priv_add_x80 = "80" + _priv
-    if verbose: print("Private with x80 at beginning: " + priv_add_x80)
+    
+    # 3 - For compressed keys, add 0x01 suffix
+    if compressed:
+        priv_add_x80 += "01"
+        if verbose: print("Private with x80 at beginning and 01 suffix (compressed): " + priv_add_x80)
+    else:
+        if verbose: print("Private with x80 at beginning (uncompressed): " + priv_add_x80)
 
-    # 3 - Perform SHA-256 hash on the extended key
+    # 4 - Perform SHA-256 hash on the extended key
     first_sha256 = sha256_btcwif(priv_add_x80)
     if verbose: print("sha256: " + first_sha256.upper())
 
-    # 4 - Perform SHA-256 hash on result of SHA-256 hash
+    # 5 - Perform SHA-256 hash on result of SHA-256 hash
     seconf_sha256 = sha256_btcwif(first_sha256)
     if verbose: print("sha256: " + seconf_sha256.upper())
 
-    # 5 - Take the first 4 bytes of the second SHA-256 hash, this is the checksum
+    # 6 - Take the first 4 bytes of the second SHA-256 hash, this is the checksum
     first_4_bytes = seconf_sha256[0:8]
     if verbose: print("First 4 bytes: " + first_4_bytes)
 
-    # 6 - Add the 4 checksum bytes from point 5 at the end of the extended key from point 2
+    # 7 - Add the 4 checksum bytes from point 5 at the end of the extended key from point 2
     resulting_hex = priv_add_x80 + first_4_bytes
     if verbose: print("Resulting WIF in HEX: " + resulting_hex)
 
-    # 7 - Convert the result from a byte string into a base58 string using Base58Check encoding. This is the Wallet Import Format
+    # 8 - Convert the result from a byte string into a base58 string using Base58Check encoding. This is the Wallet Import Format
     result_wif = b58encode_btcwif(resulting_hex)
     if verbose: print("Resulting WIF: " + result_wif)
 
@@ -4514,7 +4520,7 @@ def keyinfo(sec, network=None, print_info=False, force_compressed=None):
             print("Privkey:             %s" % wif)
             # Also display the WIF using the btcwif library
             hex_secret = bytes_to_str(binascii.hexlify(secret))
-            btcwif_privkey = privToWif(hex_secret)
+            btcwif_privkey = privToWif(hex_secret, compressed=False)
             print("WIF (btcwif):        %s" % btcwif_privkey)
         else:
             print("Privkey unavailable: unknown network WIF prefix")
@@ -5416,7 +5422,7 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
                         # Try to convert to WIF format
                         try:
                             hex_key = binascii.hexlify(private_key_1).decode('ascii')
-                            wif = privToWif(hex_key)
+                            wif = privToWif(hex_key, compressed=False)
                             f.write(f"WIF Format: {wif}\n")
                         except Exception as e:
                             f.write(f"WIF conversion error: {e}\n")
@@ -6241,8 +6247,8 @@ def targeted_key_extraction(wallet_path, output_file):
                     
                     # Convert to WIF formats
                     try:
-                        wif_compressed = privToWif(key_info['hex'], True)
-                        wif_uncompressed = privToWif(key_info['hex'], False)
+                        wif_compressed = privToWif(key_info['hex'], compressed=True)
+                        wif_uncompressed = privToWif(key_info['hex'], compressed=False)
                         
                         if wif_compressed:
                             f.write(f"  WIF (compressed): {wif_compressed}\n")
@@ -6451,7 +6457,7 @@ if __name__ == '__main__':
                       help="check if a WIF format private key is valid")
 
     parser.add_option("--recover", dest="recover", action="store_true",
-                      help="recover your deleted keys, use with recov_size and recov_device")
+                      help="UNIVERSAL recovery command - automatically tries targeted extraction first, then falls back to traditional recovery (works with any wallet file or device)")
 
     parser.add_option("--recov_device", dest="recov_device",
                       help="device to read (e.g. /dev/sda1 or E: or a file), or directory (will automatically find wallet.dat files)")
@@ -6814,6 +6820,36 @@ if __name__ == '__main__':
         if len(device) in [2, 3] and device[1] == ':':
             device = "\\\\.\\" + device
 
+        # 🧠 SMART UNIVERSAL RECOVERY: Try targeted extraction first for wallet files
+        if os.path.isfile(device) and device.lower().endswith('.dat'):
+            print("🎯 SMART UNIVERSAL RECOVERY - Analyzing wallet file...")
+            print(f"🔍 Target: {device}")
+            print("=" * 60)
+            print("🚀 Step 1: Attempting targeted extraction (fast method)...")
+            
+            output_file = options.output_keys or "recovery_results.txt"
+            
+            # Try targeted extraction first
+            try:
+                success = targeted_key_extraction(device, output_file)
+                
+                if success:
+                    print("\n🎉 SUCCESS! Targeted extraction completed!")
+                    print(f"📂 Keys saved to: {output_file}")
+                    print("✅ UNIFIED COMMAND SUCCESS: Wallet processed with fast method!")
+                    exit(0)
+                else:
+                    print("\n⚠️  Targeted extraction didn't find keys or failed")
+                    print("🔄 Step 2: Falling back to traditional recovery method...")
+                    print("=" * 60)
+                    # Continue with standard recovery below
+                    
+            except Exception as e:
+                print(f"\n⚠️  Targeted extraction encountered an error: {str(e)}")
+                print("🔄 Step 2: Falling back to traditional recovery method...")
+                print("=" * 60)
+                # Continue with standard recovery below
+
         # Check if the device is a directory
         if os.path.isdir(device):
             # Search for wallet.dat files in the directory
@@ -7088,12 +7124,12 @@ if __name__ == '__main__':
 
                     try:
                         # Uncompressed WIF
-                        wif_uncompressed = privToWif(hex_key)
+                        wif_uncompressed = privToWif(hex_key, compressed=False)
                         f.write("%s\n" % wif_uncompressed)
                         wif_total += 1
 
-                        # Compressed WIF (add 01 to the end of the private key)
-                        wif_compressed = privToWif(hex_key + "01")
+                        # Compressed WIF
+                        wif_compressed = privToWif(hex_key, compressed=True)
                         f.write("%s\n" % wif_compressed)
                         wif_total += 1
                     except Exception as e:
@@ -7225,7 +7261,7 @@ if __name__ == '__main__':
     # Handle btcwif options
     if not (options.priv2wif is None):
         try:
-            wif = privToWif(options.priv2wif, verbose=True)
+            wif = privToWif(options.priv2wif, compressed=False, verbose=True)
             print("\nWIF: %s" % wif)
         except Exception as e:
             print("Error converting private key to WIF: %s" % str(e))
