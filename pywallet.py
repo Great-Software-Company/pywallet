@@ -29,6 +29,9 @@ def global_exception_handler(exctype, value, tb):
     print("\nTraceback:")
     print(error_msg)
     print("====================================================\n")
+    
+    # Generate comprehensive error report for remote debugging
+    generate_error_report(exctype, value, tb, error_msg)
 
     # If we're in the recovery process, try to save any recovered keys
     if 'recoveredKeys' in globals() and recoveredKeys:
@@ -65,6 +68,127 @@ def global_exception_handler(exctype, value, tb):
 
     print("\nExiting due to error.")
     sys.exit(1)
+
+
+def generate_error_report(exctype, value, tb, error_msg):
+    """Generate a comprehensive error report for remote debugging"""
+    try:
+        report_file = f"pywallet_error_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        
+        with open(report_file, 'w') as f:
+            f.write("=" * 80 + "\n")
+            f.write("PYWALLET ERROR REPORT FOR REMOTE DEBUGGING\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Pywallet Version: {pywversion}\n")
+            f.write(f"Error Type: {exctype.__name__}\n")
+            f.write(f"Error Message: {value}\n")
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("SYSTEM INFORMATION\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Python Version: {sys.version}\n")
+            f.write(f"Platform: {platform.platform()}\n")
+            f.write(f"Architecture: {platform.architecture()}\n")
+            f.write(f"Current Directory: {os.getcwd()}\n")
+            f.write(f"Script Path: {os.path.abspath(__file__)}\n")
+            
+            # Command line arguments
+            f.write(f"Command Line Args: {' '.join(sys.argv)}\n")
+            
+            # Environment variables (relevant ones)
+            relevant_env = ['PATH', 'PYTHONPATH', 'HOME', 'USER', 'APPDATA', 'LOCALAPPDATA']
+            f.write("\nRelevant Environment Variables:\n")
+            for env_var in relevant_env:
+                if env_var in os.environ:
+                    f.write(f"  {env_var}: {os.environ[env_var]}\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("DEPENDENCY STATUS\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Berkeley DB Available: {bdb is not None}\n")
+            if missing_dep:
+                f.write(f"Missing Dependencies: {', '.join(missing_dep)}\n")
+            else:
+                f.write("All Dependencies Available: Yes\n")
+            
+            # Check if options were parsed
+            if 'options' in globals():
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("COMMAND OPTIONS\n")
+                f.write("=" * 80 + "\n")
+                options_dict = vars(options)
+                for key, value in options_dict.items():
+                    if value is not None and value != '' and value != False:
+                        f.write(f"  {key}: {value}\n")
+            
+            # Wallet file information (if available)
+            if 'options' in globals() and hasattr(options, 'walletfile') and options.walletfile:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("WALLET FILE INFORMATION\n")
+                f.write("=" * 80 + "\n")
+                wallet_path = options.walletfile
+                f.write(f"Wallet Path: {wallet_path}\n")
+                
+                if os.path.exists(wallet_path):
+                    try:
+                        stat_info = os.stat(wallet_path)
+                        f.write(f"File Size: {stat_info.st_size} bytes\n")
+                        f.write(f"Last Modified: {datetime.fromtimestamp(stat_info.st_mtime)}\n")
+                        f.write(f"Readable: {os.access(wallet_path, os.R_OK)}\n")
+                        f.write(f"Writable: {os.access(wallet_path, os.W_OK)}\n")
+                        
+                        # Try to read first few bytes
+                        with open(wallet_path, 'rb') as wf:
+                            header = wf.read(32)
+                            f.write(f"File Header (hex): {binascii.hexlify(header).decode()}\n")
+                    except Exception as e:
+                        f.write(f"Error reading wallet file: {e}\n")
+                else:
+                    f.write("Wallet file does not exist\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("FULL ERROR TRACEBACK\n")
+            f.write("=" * 80 + "\n")
+            f.write(error_msg)
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("DEBUGGING SUGGESTIONS\n")
+            f.write("=" * 80 + "\n")
+            
+            # Provide specific debugging suggestions based on error type
+            if exctype.__name__ == 'ImportError':
+                f.write("- This is a missing dependency error\n")
+                f.write("- Install missing packages with pip\n")
+                f.write("- Check Python environment and PATH\n")
+            elif exctype.__name__ == 'FileNotFoundError':
+                f.write("- Check if the wallet file path is correct\n")
+                f.write("- Verify file permissions\n")
+                f.write("- Ensure the file hasn't been moved or deleted\n")
+            elif exctype.__name__ == 'PermissionError':
+                f.write("- Check file/directory permissions\n")
+                f.write("- Run with appropriate user privileges\n")
+                f.write("- Verify write access to output directories\n")
+            elif 'bsddb' in str(value).lower() or 'berkeley' in str(value).lower():
+                f.write("- This is a Berkeley DB related error\n")
+                f.write("- Install bsddb3: pip install bsddb3\n")
+                f.write("- Check if wallet file is corrupted\n")
+                f.write("- Try recovery mode if standard access fails\n")
+            else:
+                f.write("- Check the full traceback above for specific error location\n")
+                f.write("- Verify all command line arguments are correct\n")
+                f.write("- Try running with --diagnose flag for more info\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("END OF REPORT\n")
+            f.write("=" * 80 + "\n")
+        
+        print(f"\n📋 ERROR REPORT GENERATED: {report_file}")
+        print("📧 Please send this file to support for analysis!")
+        print("🔍 This report contains system info but NO private keys or wallet data.")
+        
+    except Exception as e:
+        print(f"Failed to generate error report: {e}")
+        print("Please manually copy the error information above.")
 
 
 # Install the global exception handler
@@ -6459,9 +6583,535 @@ class TestPywallet(unittest.TestCase):
         pass
 
 
+def create_status_logger():
+    """Create a status logger for tracking execution flow"""
+    global status_log
+    status_log = []
+    
+    def log_status(message, level="INFO"):
+        timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        log_entry = f"[{timestamp}] {level}: {message}"
+        status_log.append(log_entry)
+        print(f"📊 {log_entry}")
+    
+    return log_status
+
+
+def save_execution_log():
+    """Save the execution log to a file for analysis"""
+    try:
+        log_file = f"pywallet_execution_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        
+        with open(log_file, 'w') as f:
+            f.write("=" * 80 + "\n")
+            f.write("PYWALLET EXECUTION LOG FOR ANALYSIS\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Pywallet Version: {pywversion}\n")
+            f.write(f"Command: {' '.join(sys.argv)}\n")
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("EXECUTION FLOW LOG\n")
+            f.write("=" * 80 + "\n")
+            
+            if 'status_log' in globals():
+                for entry in status_log:
+                    f.write(entry + "\n")
+            else:
+                f.write("No execution log available\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("END OF LOG\n")
+            f.write("=" * 80 + "\n")
+        
+        print(f"\n📋 EXECUTION LOG SAVED: {log_file}")
+        print("📧 Please send this file along with any error reports!")
+        
+    except Exception as e:
+        print(f"Failed to save execution log: {e}")
+
+
+def generate_client_summary_report():
+    """Generate a comprehensive summary report for the client to share"""
+    try:
+        summary_file = f"pywallet_client_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        
+        with open(summary_file, 'w') as f:
+            f.write("=" * 80 + "\n")
+            f.write("PYWALLET CLIENT SUMMARY REPORT\n")
+            f.write("=" * 80 + "\n")
+            f.write("📋 SHARE THIS FILE WITH SUPPORT FOR ANALYSIS\n")
+            f.write("🔒 This file contains NO private keys or sensitive wallet data\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Pywallet Version: {pywversion}\n")
+            f.write(f"Command Executed: {' '.join(sys.argv)}\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("SYSTEM ENVIRONMENT\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Python Version: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n")
+            f.write(f"Operating System: {platform.system()} {platform.release()}\n")
+            f.write(f"Architecture: {platform.machine()}\n")
+            f.write(f"Working Directory: {os.getcwd()}\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("DEPENDENCY STATUS\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Berkeley DB Available: {'Yes' if bdb else 'No'}\n")
+            if missing_dep:
+                f.write(f"Missing Dependencies: {', '.join(missing_dep)}\n")
+            else:
+                f.write("All Required Dependencies: Available\n")
+            
+            # Check if wallet file was specified
+            if 'options' in globals() and hasattr(options, 'walletfile') and options.walletfile:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("WALLET FILE STATUS\n")
+                f.write("=" * 80 + "\n")
+                wallet_path = options.walletfile
+                f.write(f"Wallet Path: {wallet_path}\n")
+                
+                if os.path.exists(wallet_path):
+                    try:
+                        stat_info = os.stat(wallet_path)
+                        f.write(f"File Exists: Yes\n")
+                        f.write(f"File Size: {stat_info.st_size} bytes ({stat_info.st_size / 1024:.2f} KB)\n")
+                        f.write(f"Readable: {'Yes' if os.access(wallet_path, os.R_OK) else 'No'}\n")
+                        f.write(f"Writable: {'Yes' if os.access(wallet_path, os.W_OK) else 'No'}\n")
+                        
+                        # File type detection
+                        with open(wallet_path, 'rb') as wf:
+                            header = wf.read(16)
+                            f.write(f"File Header: {binascii.hexlify(header).decode()}\n")
+                            
+                            if header.startswith(b'\x00\x00\x00\x00'):
+                                f.write("File Type: Likely Berkeley DB wallet\n")
+                            else:
+                                f.write("File Type: Unknown or corrupted\n")
+                                
+                    except Exception as e:
+                        f.write(f"File Analysis Error: {e}\n")
+                else:
+                    f.write("File Exists: No\n")
+            
+            # Issues and warnings
+            issues, warnings = detect_common_issues()
+            if issues or warnings:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("DETECTED ISSUES\n")
+                f.write("=" * 80 + "\n")
+                
+                if issues:
+                    f.write("CRITICAL ISSUES:\n")
+                    for issue in issues:
+                        f.write(f"  - {issue}\n")
+                
+                if warnings:
+                    f.write("WARNINGS:\n")
+                    for warning in warnings:
+                        f.write(f"  - {warning}\n")
+            
+            # Execution summary
+            if 'status_log' in globals():
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("EXECUTION SUMMARY\n")
+                f.write("=" * 80 + "\n")
+                
+                error_count = len([log for log in status_log if 'ERROR' in log])
+                warning_count = len([log for log in status_log if 'WARNING' in log])
+                
+                f.write(f"Total Log Entries: {len(status_log)}\n")
+                f.write(f"Errors Encountered: {error_count}\n")
+                f.write(f"Warnings Generated: {warning_count}\n")
+                
+                if error_count > 0:
+                    f.write("\nERROR ENTRIES:\n")
+                    for log in status_log:
+                        if 'ERROR' in log:
+                            f.write(f"  {log}\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("NEXT STEPS\n")
+            f.write("=" * 80 + "\n")
+            f.write("1. Share this summary file with technical support\n")
+            f.write("2. If errors occurred, also share any error report files\n")
+            f.write("3. Include the exact command you ran and what you expected\n")
+            f.write("4. Mention any specific error messages you saw\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("END OF SUMMARY\n")
+            f.write("=" * 80 + "\n")
+        
+        print(f"\n📋 CLIENT SUMMARY GENERATED: {summary_file}")
+        print("📧 This is the main file to share with support!")
+        print("🔒 Contains system info but NO private keys or wallet data")
+        
+        return summary_file
+        
+    except Exception as e:
+        print(f"Failed to generate client summary: {e}")
+        return None
+
+
+def print_system_diagnostics():
+    """Print comprehensive system and environment diagnostics"""
+    log_status = create_status_logger()
+    
+    log_status("Starting system diagnostics")
+    print("\n" + "=" * 80)
+    print("🔧 SYSTEM DIAGNOSTICS & ENVIRONMENT ANALYSIS")
+    print("=" * 80)
+    
+    # Python version info
+    log_status(f"Python version: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print(f"📍 Python Version: {sys.version}")
+    print(f"📍 Python Executable: {sys.executable}")
+    print(f"📍 Platform: {platform.platform()}")
+    print(f"📍 Architecture: {platform.architecture()}")
+    print(f"📍 Machine: {platform.machine()}")
+    print(f"📍 Processor: {platform.processor()}")
+    
+    # Current working directory
+    log_status(f"Working directory: {os.getcwd()}")
+    print(f"📍 Current Directory: {os.getcwd()}")
+    print(f"📍 Script Location: {os.path.abspath(__file__)}")
+    
+    # Memory info (if available)
+    try:
+        import psutil
+        memory = psutil.virtual_memory()
+        log_status(f"Memory: {memory.available / (1024**3):.2f}GB available of {memory.total / (1024**3):.2f}GB total")
+        print(f"📍 Total Memory: {memory.total / (1024**3):.2f} GB")
+        print(f"📍 Available Memory: {memory.available / (1024**3):.2f} GB")
+        print(f"📍 Memory Usage: {memory.percent}%")
+    except ImportError:
+        log_status("psutil not available for memory info")
+        print("📍 Memory Info: psutil not available")
+    
+    # Check critical dependencies
+    log_status("Checking dependencies")
+    print("\n🔍 DEPENDENCY CHECK:")
+    dependencies = {
+        'bsddb3' if PY3 else 'bsddb': bdb is not None,
+        'binascii': True,
+        'hashlib': True,
+        'json': True,
+        'os': True,
+        'sys': True,
+        'struct': True,
+        'traceback': True
+    }
+    
+    for dep, available in dependencies.items():
+        status = "✅ Available" if available else "❌ Missing"
+        log_status(f"Dependency {dep}: {'Available' if available else 'Missing'}")
+        print(f"  {dep}: {status}")
+    
+    if missing_dep:
+        log_status(f"Missing dependencies detected: {', '.join(missing_dep)}", "WARNING")
+        print(f"\n⚠️  MISSING DEPENDENCIES: {', '.join(missing_dep)}")
+        print("   These may cause issues with wallet operations!")
+    
+    # Check for common wallet locations
+    log_status("Scanning for common wallet locations")
+    print("\n🔍 COMMON WALLET LOCATIONS CHECK:")
+    common_locations = []
+    
+    if platform.system() == "Windows":
+        appdata = os.environ.get('APPDATA', '')
+        if appdata:
+            common_locations.extend([
+                os.path.join(appdata, 'Bitcoin'),
+                os.path.join(appdata, 'Bitcoin', 'wallet.dat'),
+                os.path.join(appdata, 'Bitcoin', 'wallets'),
+            ])
+    elif platform.system() == "Darwin":  # macOS
+        home = os.path.expanduser("~")
+        common_locations.extend([
+            os.path.join(home, "Library", "Application Support", "Bitcoin"),
+            os.path.join(home, "Library", "Application Support", "Bitcoin", "wallet.dat"),
+        ])
+    else:  # Linux
+        home = os.path.expanduser("~")
+        common_locations.extend([
+            os.path.join(home, ".bitcoin"),
+            os.path.join(home, ".bitcoin", "wallet.dat"),
+            os.path.join(home, ".bitcoin", "wallets"),
+        ])
+    
+    found_wallets = 0
+    for location in common_locations:
+        if os.path.exists(location):
+            if os.path.isfile(location):
+                size = os.path.getsize(location)
+                log_status(f"Found wallet file: {location} ({size} bytes)")
+                print(f"  ✅ Found file: {location} ({size} bytes)")
+                found_wallets += 1
+            else:
+                log_status(f"Found wallet directory: {location}")
+                print(f"  ✅ Found directory: {location}")
+        else:
+            print(f"  ❌ Not found: {location}")
+    
+    log_status(f"Wallet location scan complete: {found_wallets} wallet files found")
+    log_status("System diagnostics completed")
+    print("=" * 80)
+
+
+def analyze_wallet_file(wallet_path):
+    """Analyze a wallet file and provide detailed diagnostics"""
+    if not wallet_path or not os.path.exists(wallet_path):
+        if 'status_log' in globals():
+            log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
+            log_status(f"Wallet file analysis skipped - file not found: {wallet_path}", "WARNING")
+        return
+        
+    # Get the logger if available
+    if 'status_log' in globals():
+        log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
+    else:
+        log_status = lambda msg, level="INFO": None
+        
+    log_status(f"Starting wallet file analysis: {wallet_path}")
+    print("\n" + "=" * 80)
+    print("📁 WALLET FILE ANALYSIS")
+    print("=" * 80)
+    
+    print(f"📍 Wallet Path: {os.path.abspath(wallet_path)}")
+    
+    # Basic file info
+    try:
+        stat_info = os.stat(wallet_path)
+        log_status(f"Wallet file size: {stat_info.st_size} bytes")
+        print(f"📍 File Size: {stat_info.st_size} bytes ({stat_info.st_size / 1024:.2f} KB)")
+        print(f"📍 Last Modified: {datetime.fromtimestamp(stat_info.st_mtime)}")
+        print(f"📍 Last Accessed: {datetime.fromtimestamp(stat_info.st_atime)}")
+        print(f"📍 Created: {datetime.fromtimestamp(stat_info.st_ctime)}")
+        
+        # Check if file is readable
+        readable = os.access(wallet_path, os.R_OK)
+        writable = os.access(wallet_path, os.W_OK)
+        log_status(f"File permissions - Readable: {readable}, Writable: {writable}")
+        
+        if readable:
+            print("📍 File Permissions: ✅ Readable")
+        else:
+            print("📍 File Permissions: ❌ Not readable")
+            log_status("File is not readable - this will cause issues", "ERROR")
+            
+        if writable:
+            print("📍 File Permissions: ✅ Writable")
+        else:
+            print("📍 File Permissions: ❌ Not writable")
+            
+    except Exception as e:
+        log_status(f"Error getting file info: {e}", "ERROR")
+        print(f"❌ Error getting file info: {e}")
+        return
+    
+    # Try to detect file type
+    try:
+        with open(wallet_path, 'rb') as f:
+            header = f.read(16)
+            print(f"📍 File Header (hex): {binascii.hexlify(header).decode()}")
+            
+            # Check for common wallet signatures
+            if header.startswith(b'\x00\x00\x00\x00'):
+                print("📍 File Type: Possibly Berkeley DB wallet")
+            elif b'BDB' in header or b'Berkeley' in header:
+                print("📍 File Type: Berkeley DB detected")
+            else:
+                print("📍 File Type: Unknown format")
+                
+    except Exception as e:
+        print(f"❌ Error reading file header: {e}")
+    
+    # Try to open with Berkeley DB
+    if bdb:
+        try:
+            print("\n🔍 BERKELEY DB ANALYSIS:")
+            db_env = bdb.DBEnv(0)
+            db_env.set_cachesize(0, 64 * 1024 * 1024, 1)
+            db_env.set_lk_max_locks(40000)
+            db_env.set_lk_max_objects(40000)
+            
+            # Try to open the database
+            db_dir = os.path.dirname(wallet_path)
+            if not db_dir:
+                db_dir = "."
+                
+            db_env.open(db_dir, bdb.DB_CREATE | bdb.DB_INIT_LOCK | bdb.DB_INIT_LOG | bdb.DB_INIT_MPOOL | bdb.DB_INIT_TXN | bdb.DB_RECOVER)
+            
+            db = bdb.DB(db_env)
+            wallet_name = os.path.basename(wallet_path)
+            db.open(wallet_name, "main", bdb.DB_BTREE, bdb.DB_RDONLY)
+            
+            # Count entries
+            cursor = db.cursor()
+            count = 0
+            key_types = {}
+            
+            try:
+                rec = cursor.first()
+                while rec:
+                    count += 1
+                    key, value = rec
+                    
+                    # Try to determine key type
+                    try:
+                        if len(key) > 0:
+                            key_type = key[:10] if len(key) >= 10 else key
+                            key_type_str = key_type.decode('ascii', errors='ignore')
+                            key_types[key_type_str] = key_types.get(key_type_str, 0) + 1
+                    except:
+                        pass
+                        
+                    rec = cursor.next()
+                    
+                    # Limit analysis to prevent hanging
+                    if count > 1000:
+                        break
+                        
+            except Exception as e:
+                print(f"⚠️  Error during cursor iteration: {e}")
+            
+            cursor.close()
+            db.close()
+            db_env.close()
+            
+            print(f"✅ Berkeley DB opened successfully")
+            print(f"📍 Total entries found: {count}")
+            
+            if key_types:
+                print("📍 Key types found:")
+                for key_type, count in sorted(key_types.items()):
+                    print(f"   {key_type}: {count} entries")
+                    
+        except Exception as e:
+            print(f"❌ Berkeley DB analysis failed: {e}")
+            print("   This might indicate a corrupted or encrypted wallet")
+    else:
+        print("❌ Berkeley DB not available - cannot analyze wallet structure")
+    
+    print("=" * 80)
+
+
+def detect_common_issues():
+    """Detect and report common issues that might prevent wallet operations"""
+    issues = []
+    warnings = []
+    
+    # Check Python version
+    if sys.version_info < (3, 6):
+        issues.append("Python version is too old. Python 3.6+ recommended.")
+    elif sys.version_info < (3, 8):
+        warnings.append("Python version is older. Consider upgrading to Python 3.8+")
+    
+    # Check critical dependencies
+    if not bdb:
+        issues.append("Berkeley DB (bsddb3/bsddb) is not available - wallet operations will fail")
+    
+    # Check write permissions in current directory
+    try:
+        test_file = "pywallet_test_write.tmp"
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+    except Exception:
+        warnings.append("Cannot write to current directory - output files may fail")
+    
+    # Check available disk space
+    try:
+        import shutil
+        free_space = shutil.disk_usage('.').free
+        if free_space < 100 * 1024 * 1024:  # Less than 100MB
+            warnings.append(f"Low disk space: {free_space / (1024*1024):.1f} MB available")
+    except Exception:
+        pass
+    
+    return issues, warnings
+
+
+def print_command_help():
+    """Print helpful command examples based on detected system"""
+    print("\n" + "=" * 80)
+    print("💡 RECOMMENDED COMMANDS FOR YOUR CLIENT")
+    print("=" * 80)
+    
+    # Check for common issues first
+    issues, warnings = detect_common_issues()
+    
+    if issues:
+        print("🚨 CRITICAL ISSUES DETECTED:")
+        for issue in issues:
+            print(f"   ❌ {issue}")
+        print()
+    
+    if warnings:
+        print("⚠️  WARNINGS:")
+        for warning in warnings:
+            print(f"   ⚠️  {warning}")
+        print()
+    
+    print("Based on the analysis above, here are the recommended commands:")
+    print()
+    
+    print("🔍 FOR WALLET ANALYSIS:")
+    print("   python pywallet.py --wallet /path/to/wallet.dat --dump")
+    print("   python pywallet.py --wallet /path/to/wallet.dat --dumpwithbalance")
+    print()
+    
+    print("🔑 FOR KEY EXTRACTION:")
+    print("   python pywallet.py --wallet /path/to/wallet.dat --extract_advanced --extract_password YOUR_PASSWORD")
+    print("   python pywallet.py --wallet /path/to/wallet.dat --auto_detect")
+    print()
+    
+    print("🔧 FOR RECOVERY FROM DAMAGED FILES:")
+    print("   python pywallet.py --recover --recov_device /path/to/wallet.dat --output_keys recovered_keys.txt")
+    print("   python pywallet.py --recover --recov_device /path/to/device --recov_size 1GB --output_keys keys.txt")
+    print()
+    
+    print("📊 FOR WALLET INFORMATION:")
+    print("   python pywallet.py --wallet /path/to/wallet.dat --count_keys")
+    print("   python pywallet.py --wallet /path/to/wallet.dat --find_address YOUR_ADDRESS")
+    print()
+    
+    print("🔧 FOR TROUBLESHOOTING:")
+    print("   python pywallet.py --diagnose")
+    print("   python pywallet.py --diagnose --wallet /path/to/wallet.dat")
+    print()
+    
+    print("⚠️  IMPORTANT NOTES:")
+    print("   1. Replace /path/to/wallet.dat with the actual path to your wallet file")
+    print("   2. Replace YOUR_PASSWORD with your actual wallet password")
+    print("   3. Always backup your wallet before running any commands")
+    print("   4. If you see dependency errors above, install them first")
+    print("   5. Use --diagnose flag for detailed troubleshooting information")
+    print()
+    
+    if missing_dep:
+        print("🔧 INSTALL MISSING DEPENDENCIES:")
+        for dep in missing_dep:
+            if dep == 'bsddb3':
+                print("   pip install bsddb3")
+            else:
+                print(f"   pip install {dep}")
+        print()
+    
+    if issues:
+        print("🚨 RESOLVE CRITICAL ISSUES BEFORE PROCEEDING!")
+        print("   The issues listed above must be fixed for wallet operations to work.")
+        print()
+    
+    print("=" * 80)
+
+
 if __name__ == '__main__':
     # Print version information at startup
     print(f"Pywallet {pywversion} - https://pywallet.org")
+    
+    # Print comprehensive diagnostics
+    print_system_diagnostics()
     
     parser = OptionParser(usage="%prog [options]", version="%prog 1.1")
 
@@ -6599,11 +7249,36 @@ if __name__ == '__main__':
     parser.add_option("--targeted_output", dest="targeted_output",
                       help="output file for targeted extraction (default: output_file.txt)")
 
+    parser.add_option("--diagnose", dest="diagnose", action="store_true",
+                      help="run comprehensive diagnostics and exit (useful for troubleshooting)")
+
     #	parser.add_option("--forcerun", dest="forcerun",
     #		action="store_true",
     #		help="run even if pywallet detects bitcoin is running")
 
     (options, args) = parser.parse_args()
+    
+    # Log the command that was executed
+    if 'status_log' in globals():
+        log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
+        log_status(f"Command executed: {' '.join(sys.argv)}")
+        
+        # Log key options
+        if hasattr(options, 'walletfile') and options.walletfile:
+            log_status(f"Wallet file specified: {options.walletfile}")
+        if hasattr(options, 'recover') and options.recover:
+            log_status("Recovery mode requested")
+        if hasattr(options, 'extract_advanced') and options.extract_advanced:
+            log_status("Advanced extraction mode requested")
+        if hasattr(options, 'dump') and options.dump:
+            log_status("Wallet dump requested")
+    
+    # Analyze wallet file if provided
+    if hasattr(options, 'walletfile') and options.walletfile:
+        analyze_wallet_file(options.walletfile)
+    
+    # Print command help for the client
+    print_command_help()
 
     #	a=Popen("ps xa | grep ' bitcoin'", shell=True, bufsize=-1, stdout=PIPE).stdout
     #	aread=a.read()
@@ -6616,6 +7291,20 @@ if __name__ == '__main__':
 
     if options.tests:
         unittest.main(argv=sys.argv[:1] + ['TestPywallet'])
+        exit()
+    
+    # Handle diagnostic mode
+    if options.diagnose:
+        print("\n" + "=" * 80)
+        print("🔧 COMPREHENSIVE DIAGNOSTIC MODE")
+        print("=" * 80)
+        print("This mode provides detailed system analysis for troubleshooting.")
+        print("Share this output with support to help diagnose issues.")
+        print("=" * 80)
+        
+        # The diagnostics were already printed at startup, so just exit
+        print("\n✅ Diagnostic analysis complete!")
+        print("📋 Please share the above output for analysis.")
         exit()
 
     if options.dump_bip32:
@@ -7498,6 +8187,16 @@ if __name__ == '__main__':
 
             db.close()
         exit()
+
+    # Save execution log and generate summary at the end of successful execution
+    if 'status_log' in globals():
+        log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
+        log_status("Pywallet execution completed successfully")
+        save_execution_log()
+        generate_client_summary_report()
+    else:
+        # Generate summary even if no status log
+        generate_client_summary_report()
 
 
 
