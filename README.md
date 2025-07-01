@@ -250,6 +250,167 @@ Key #2 (WIF): 5Jbm9rrusXMYL8HqtVJWANrKZWGNgMXTYqN9VVvV71TjdphjRPR
 - ✅ **Handles edge cases** automatically
 - ✅ **Client satisfaction** through preference accommodation
 
+## 🎯 **Real-World Recovery Scenarios**
+
+### **🔥 Scenario 1: Corrupted Bitcoin Core Wallet (Most Common)**
+
+**Situation**: Your `wallet.dat` file won't open in Bitcoin Core, shows corruption errors, or the application crashes when trying to load it.
+
+**Command**:
+```bash
+# Standard Bitcoin Core location (Linux)
+./run_pywallet.sh --recover --recov_device=~/.bitcoin/wallet.dat --output_keys=recovered_keys.txt
+
+# Custom location
+./run_pywallet.sh --recover --recov_device=/path/to/your/wallet.dat --output_keys=recovered_keys.txt
+```
+
+**What to Expect**:
+```
+❌ WALLET APPEARS DAMAGED - Using Recovery Method
+🔧 Your wallet file appears corrupted or damaged.
+   Using traditional recovery method to scan for key fragments.
+🔑 Enter the wallet password: [enter your password]
+✅ SUCCESS! 47 unique keys recovered
+```
+
+**⚠️ Important**: Always backup your original wallet.dat before recovery!
+
+---
+
+### **🔥 Scenario 2: Hard Drive Crash with Partial Wallet Data**
+
+**Situation**: Hard drive crashed, but you can still access some sectors. Wallet file may be partially readable.
+
+**Command**:
+```bash
+# For damaged hard drive partition
+./run_pywallet.sh --recover --recov_device=/dev/sda1 --recov_size=500MB --output_keys=recovered_keys.txt
+
+# For damaged wallet file with known size issues
+./run_pywallet.sh --recover --recov_device=/path/to/damaged/wallet.dat --output_keys=recovered_keys.txt
+```
+
+**What to Expect**:
+```
+🔍 SMART RECOVERY - Analyzing target...
+⚠️ Advanced extraction failed: I/O error
+🔄 Automatically falling back to traditional recovery method...
+✅ Found 1 possible wallet
+✅ Found 23 possible encrypted keys
+```
+
+---
+
+### **🔥 Scenario 3: Old Bitcoin Core Wallet (Pre-2011)**
+
+**Situation**: Very old wallet from early Bitcoin days, different database format.
+
+**Command**:
+```bash
+./run_pywallet.sh --recover --recov_device=/path/to/old/wallet.dat --output_keys=old_wallet_keys.txt
+```
+
+**What to Expect**:
+```
+✅ Detected Berkeley DB wallet format (traditional Bitcoin Core)
+✅ WALLET IS INTACT - Using Advanced Extraction
+⚡ Method: Advanced Extraction (FAST & COMPLETE)
+✅ SUCCESS! 1,247 unique keys recovered
+```
+
+---
+
+### **🔥 Scenario 4: Encrypted Wallet with Known Password**
+
+**Situation**: Wallet is encrypted but you know the password. File may or may not be corrupted.
+
+**Command**:
+```bash
+./run_pywallet.sh --recover --recov_device=/path/to/encrypted/wallet.dat --output_keys=decrypted_keys.txt
+```
+
+**What to Expect**:
+```
+🔑 Enter the wallet password (or press Enter for default '1234'):
+Password: [enter your actual password]
+✅ Password accepted - decrypting keys...
+✅ SUCCESS! 89 unique keys recovered (decrypted)
+```
+
+**🔐 Security Note**: Keys will be saved in unencrypted format in the output file!
+
+---
+
+### **🔥 Scenario 5: Multiple Wallet Files Recovery**
+
+**Situation**: You have several wallet files and want to recover from all of them.
+
+**Commands** (run separately):
+```bash
+# Wallet 1
+./run_pywallet.sh --recover --recov_device=wallet1.dat --output_keys=keys_wallet1.txt
+
+# Wallet 2  
+./run_pywallet.sh --recover --recov_device=wallet2.dat --output_keys=keys_wallet2.txt
+
+# Wallet 3
+./run_pywallet.sh --recover --recov_device=backup/old_wallet.dat --output_keys=keys_backup.txt
+```
+
+**Combine Results**:
+```bash
+# Merge all recovered keys (remove duplicates manually)
+cat keys_wallet1.txt keys_wallet2.txt keys_backup.txt > all_recovered_keys.txt
+```
+
+---
+
+### **🔥 Scenario 6: Wallet on External Drive/USB**
+
+**Situation**: Wallet file is on external storage that may have connection issues.
+
+**Command**:
+```bash
+# First, copy wallet to local drive for stability
+cp /media/usb/wallet.dat ./wallet_backup.dat
+
+# Then recover from local copy
+./run_pywallet.sh --recover --recov_device=./wallet_backup.dat --output_keys=usb_wallet_keys.txt
+```
+
+**Why**: Reduces risk of I/O errors during recovery process.
+
+---
+
+### **🔥 Scenario 7: Very Large Wallet Files (>100MB)**
+
+**Situation**: Wallet file is unusually large, recovery might take a long time.
+
+**Command**:
+```bash
+# Standard recovery (may take hours)
+./run_pywallet.sh --recover --recov_device=/path/to/large/wallet.dat --output_keys=large_wallet_keys.txt
+```
+
+**What to Expect**:
+```
+🔍 SMART RECOVERY - Analyzing target...
+No size specified. Using full file size: 524288000 bytes (500.0 MB)
+⚠️ Large file detected - this may take several hours
+🔄 Processing... [progress indicators]
+```
+
+**💡 Tip**: Run in `screen` or `tmux` session for long recoveries:
+```bash
+screen -S wallet_recovery
+./run_pywallet.sh --recover --recov_device=large_wallet.dat --output_keys=keys.txt
+# Press Ctrl+A, then D to detach
+# Later: screen -r wallet_recovery to reattach
+```
+
+---
+
 ## 🚨 **Troubleshooting**
 
 ### **"No size specified" Message**
@@ -275,6 +436,57 @@ DB open error: (22, 'Invalid argument -- BDB2509 the log files from a database e
 ```
 **Solution**: ✅ Automatic fallback to binary search and raw recovery methods
 
+### **"Permission denied" Errors**
+```bash
+# Make sure you have read access to the wallet file
+chmod 644 /path/to/wallet.dat
+
+# Or copy to a location you own
+cp /path/to/wallet.dat ~/my_wallet_copy.dat
+./run_pywallet.sh --recover --recov_device=~/my_wallet_copy.dat --output_keys=keys.txt
+```
+
+### **"File not found" Errors**
+```bash
+# Check if file exists
+ls -la /path/to/wallet.dat
+
+# Find wallet files on system
+find / -name "wallet.dat" 2>/dev/null
+find ~ -name "*.dat" 2>/dev/null | grep -i wallet
+```
+
+### **Recovery Takes Too Long**
+```bash
+# Check progress (in another terminal)
+ps aux | grep pywallet
+top -p $(pgrep -f pywallet)
+
+# If stuck, try with smaller size limit
+./run_pywallet.sh --recover --recov_device=wallet.dat --recov_size=50MB --output_keys=keys.txt
+```
+
+### **"No keys found" Result**
+**Possible causes**:
+1. **Wrong password**: Try without password or different passwords
+2. **File is not a wallet**: Verify it's actually a Bitcoin wallet file
+3. **Completely corrupted**: File may be beyond recovery
+4. **Wrong file**: Make sure you're using the right wallet.dat
+
+**Solutions**:
+```bash
+# Try without password
+./run_pywallet.sh --recover --recov_device=wallet.dat --output_keys=keys.txt
+# (Press Enter when prompted for password)
+
+# Try with different common passwords
+# Run the command and try: password, 123456, bitcoin, etc.
+
+# Verify file type
+file wallet.dat
+hexdump -C wallet.dat | head -20
+```
+
 ### **Python 3 Compatibility Issues**
 **Fixed**: ✅ All `AttributeError: 'dict' object has no attribute 'has_key'` errors resolved
 
@@ -283,6 +495,44 @@ DB open error: (22, 'Invalid argument -- BDB2509 the log files from a database e
 
 ### **"DB object has been closed" Error**
 This is handled automatically by the fallback system. The error is caught and recovery continues with an alternative method.
+
+---
+
+## 🔒 **Security Best Practices for Real Wallet Recovery**
+
+### **Before Recovery**:
+1. **🔄 Backup Original**: Always copy your wallet.dat before recovery
+   ```bash
+   cp wallet.dat wallet_backup_$(date +%Y%m%d).dat
+   ```
+
+2. **🔌 Go Offline**: Disconnect from internet during recovery for maximum security
+
+3. **🖥️ Clean Environment**: Use a dedicated, clean computer if possible
+
+### **During Recovery**:
+1. **🔐 Secure Terminal**: Make sure no one can see your screen when entering passwords
+2. **📝 No Screenshots**: Never take screenshots of private keys
+3. **🚫 No Cloud Storage**: Don't save recovery files to cloud services
+
+### **After Recovery**:
+1. **🔥 Secure Deletion**: Securely delete recovery files after importing keys
+   ```bash
+   shred -vfz -n 3 recovered_keys.txt
+   ```
+
+2. **🆕 New Wallet**: Import keys into a new, secure wallet immediately
+3. **💸 Move Funds**: Transfer funds to a new wallet with fresh keys
+4. **🧹 Clean Up**: Clear terminal history and temporary files
+
+### **Key Import Commands** (for reference):
+```bash
+# Bitcoin Core
+bitcoin-cli importprivkey "your_WIF_key_here" "label" false
+
+# Electrum  
+# Use: Wallet → Private Keys → Import
+```
 
 ## 📈 **System Requirements**
 
