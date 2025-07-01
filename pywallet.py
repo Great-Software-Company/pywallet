@@ -3770,6 +3770,15 @@ def open_wallet(db_env, walletfile, writable=False, DB_RDONLY_param=None, DB_BTR
     """
     Open a wallet database with robust error handling for corrupted files
     """
+    if bdb is None:
+        print("ERROR: Berkeley DB module (bsddb3) is not available")
+        print("This is required for direct wallet access. Falling back to raw recovery.")
+        raise Exception("Berkeley DB module not available")
+        
+    print(f"\n[DEBUG] Attempting to open wallet file: {walletfile}")
+    print(f"[DEBUG] Writable mode: {writable}")
+    print(f"[DEBUG] Using BDB module: {bdb.__name__}")
+    
     db = bdb.DB(db_env)
     if writable:
         DB_TYPEOPEN = DB_CREATE
@@ -3790,23 +3799,24 @@ def open_wallet(db_env, walletfile, writable=False, DB_RDONLY_param=None, DB_BTR
     
     for i, attempt in enumerate(attempts):
         try:
-            print(f"Direct open attempt {i+1}/4: flags={attempt['flags']}, table={attempt['table']}")
+            print(f"[DEBUG] Direct open attempt {i+1}/4: flags={attempt['flags']}, table={attempt['table']}")
             r = db.open(walletfile, attempt['table'], DB_BTREE, attempt['flags'])
             if r is None:
-                print(f"Successfully opened wallet with attempt {i+1}")
+                print(f"[SUCCESS] Successfully opened wallet with attempt {i+1}")
                 return db
         except Exception as e:
-            print(f"Direct open attempt {i+1} failed: {e}")
+            print(f"[ERROR] Direct open attempt {i+1} failed: {str(e)}")
+            print(f"[DEBUG] Error type: {type(e).__name__}")
             if i < len(attempts) - 1:
                 # Close and recreate DB object for next attempt
                 try:
                     db.close()
-                except:
-                    pass
+                except Exception as close_error:
+                    print(f"[DEBUG] Error closing DB: {str(close_error)}")
                 db = bdb.DB(db_env)
     
     # All direct attempts failed
-    print("All direct database open attempts failed")
+    print("[CRITICAL] All direct database open attempts failed")
     logging.error("Couldn't open wallet.dat/main. Database may be corrupted.")
     
     # Don't exit immediately - let the calling function handle the fallback
@@ -3818,6 +3828,11 @@ def open_wallet(db_env, walletfile, writable=False, DB_RDONLY_param=None, DB_BTR
 def parse_wallet(db, item_callback):
     kds = BCDataStream()
     vds = BCDataStream()
+    
+    print("[DEBUG] Starting wallet parsing process")
+    record_count = 0
+    error_count = 0
+    type_counts = {}
 
     def parse_TxIn(vds):
         d = Bdict({})
@@ -3833,7 +3848,19 @@ def parse_wallet(db, item_callback):
         d['scriptPubKey'] = binascii.hexlify(vds.read_bytes(vds.read_compact_size()))
         return d
 
+    try:
+        # Get total number of records for progress reporting
+        total_records = sum(1 for _ in db.items())
+        print(f"[DEBUG] Total records to parse: {total_records}")
+    except Exception as e:
+        print(f"[DEBUG] Could not count total records: {e}")
+        total_records = "unknown"
+
     for (key, value) in db.items():
+        record_count += 1
+        if record_count % 100 == 0:
+            print(f"[DEBUG] Parsed {record_count} records so far...")
+            
         d = Bdict({})
 
         kds.clear();
@@ -3841,7 +3868,18 @@ def parse_wallet(db, item_callback):
         vds.clear();
         vds.write(value)
 
-        type = kds.read_string()
+        try:
+            type = kds.read_string()
+            # Count record types for statistics
+            type_str = type.decode('ascii') if isinstance(type, bytes) else str(type)
+            if type_str not in type_counts:
+                type_counts[type_str] = 0
+            type_counts[type_str] += 1
+        except Exception as e:
+            print(f"[ERROR] Failed to read record type: {e}")
+            print(f"[DEBUG] Key data in hex: {binascii.hexlify(key)}")
+            error_count += 1
+            continue
 
         d["__key__"] = key
         d["__value__"] = value
@@ -3849,6 +3887,7 @@ def parse_wallet(db, item_callback):
 
         try:
             if type == b"tx":
+                print(f"[DEBUG] Parsing transaction record #{record_count}")
                 d["tx_id"] = binascii.hexlify(kds.read_bytes(32)[::-1])
                 start = vds.read_cursor
                 d['version'] = vds.read_int32()
@@ -3869,12 +3908,14 @@ def parse_wallet(db, item_callback):
                 d['name'] = vds.read_string()
             elif type == b"version":
                 d['version'] = vds.read_uint32()
+                print(f"[DEBUG] Wallet version: {d['version']}")
             elif type == b"minversion":
                 d['minversion'] = vds.read_uint32()
             elif type == b"setting":
                 d['setting'] = kds.read_string()
                 d['value'] = parse_setting(d['setting'], vds)
             elif type == b"key":
+                print(f"[DEBUG] Parsing key record #{record_count}")
                 d['public_key'] = kds.read_bytes(kds.read_compact_size())
                 d['private_key'] = vds.read_bytes(vds.read_compact_size())
             elif type == b"wkey":
@@ -3906,25 +3947,46 @@ def parse_wallet(db, item_callback):
             # 	d['nVersion'] = vds.read_int32()
             # 	d.update(parse_BlockLocator(vds))
             elif type == b"ckey":
+                print(f"[DEBUG] Parsing encrypted key record #{record_count}")
                 d['public_key'] = kds.read_bytes(kds.read_compact_size())
                 d['encrypted_private_key'] = vds.read_bytes(vds.read_compact_size())
             elif type == b"mkey":
+                print(f"[DEBUG] Parsing master key record #{record_count}")
                 d['nID'] = kds.read_uint32()
                 d['encrypted_key'] = vds.read_string()
                 d['salt'] = vds.read_string()
                 d['nDerivationMethod'] = vds.read_uint32()
                 d['nDerivationIterations'] = vds.read_uint32()
                 d['otherParams'] = vds.read_string()
+            else:
+                print(f"[DEBUG] Unknown key type: {type}")
 
-            item_callback(type, d)
+            try:
+                item_callback(type, d)
+            except Exception as e:
+                print(f"[ERROR] Error in item_callback for type={type}, record #{record_count}")
+                print(f"[DEBUG] Error details: {e}")
+                print(f"[DEBUG] Error type: {type(e).__name__}")
+                error_count += 1
 
         except Exception as e:
+            print(f"[ERROR] Error parsing wallet.dat, type={type}, record #{record_count}")
+            print(f"[DEBUG] Key data in hex: {binascii.hexlify(key)}")
+            print(f"[DEBUG] Value data in hex: {binascii.hexlify(value)}")
+            print(f"[DEBUG] Error details: {e}")
+            print(f"[DEBUG] Error type: {type(e).__name__}")
             traceback.print_exc()
-            print("ERROR parsing wallet.dat, type %s" % type)
-            print("key data: %s" % key)
-            print("key data in hex: %s" % binascii.hexlify(key))
-            print("value data in hex: %s" % binascii.hexlify(value))
-            sys.exit(1)
+            error_count += 1
+            # Don't exit immediately - continue with other records
+            # sys.exit(1) - removed to prevent early termination
+    
+    # Print summary statistics
+    print("\n[DEBUG] ===== WALLET PARSING SUMMARY =====")
+    print(f"[DEBUG] Total records processed: {record_count}")
+    print(f"[DEBUG] Errors encountered: {error_count}")
+    print("[DEBUG] Record types found:")
+    for type_name, count in type_counts.items():
+        print(f"[DEBUG]   - {type_name}: {count} records")
 
 
 def delete_from_wallet(db_env, walletfile, typedel, kd):
@@ -4247,13 +4309,31 @@ def read_wallet(json_db, db_env, walletfile, print_wallet, print_wallet_transact
 
     private_keys = []
     private_hex_keys = []
-
+    
+    print("\n[DEBUG] ===== WALLET READING PROCESS STARTED =====")
+    print(f"[DEBUG] Wallet file: {walletfile}")
+    print(f"[DEBUG] Fill pool: {FillPool}")
+    print(f"[DEBUG] Include balance: {include_balance}")
+    
+    # Check if Berkeley DB module is available
+    if bdb is None:
+        print("[CRITICAL] Berkeley DB module (bsddb3) is not available")
+        print("[INFO] This is required for direct wallet access")
+        print("[INFO] Falling back to raw recovery methods")
+        return {"error": "bdb_not_available", "crypted": False}
+    
     try:
+        print("[DEBUG] Attempting to open wallet database...")
         db = open_wallet(db_env, walletfile, writable=FillPool)
+        print("[DEBUG] Wallet database opened successfully")
     except Exception as e:
-        print(f"Failed to open wallet database: {e}")
-        raise Exception("Database corrupted - cannot open wallet file")
+        print(f"[ERROR] Failed to open wallet database: {e}")
+        print(f"[DEBUG] Error type: {type(e).__name__}")
+        print("[INFO] Database may be corrupted or not a valid wallet file")
+        print("[INFO] Will attempt to fall back to raw recovery methods")
+        return {"error": "db_open_failed", "crypted": False}
 
+    print("[DEBUG] Initializing wallet data structures")
     json_db['keys'] = []
     json_db['pool'] = []
     json_db['tx'] = []
