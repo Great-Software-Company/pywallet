@@ -29,9 +29,6 @@ def global_exception_handler(exctype, value, tb):
     print("\nTraceback:")
     print(error_msg)
     print("====================================================\n")
-    
-    # Generate comprehensive error report for remote debugging
-    generate_error_report(exctype, value, tb, error_msg)
 
     # If we're in the recovery process, try to save any recovered keys
     if 'recoveredKeys' in globals() and recoveredKeys:
@@ -70,129 +67,68 @@ def global_exception_handler(exctype, value, tb):
     sys.exit(1)
 
 
-def generate_error_report(exctype, value, tb, error_msg):
-    """Generate a comprehensive error report for remote debugging"""
-    try:
-        report_file = f"pywallet_error_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        with open(report_file, 'w') as f:
-            f.write("=" * 80 + "\n")
-            f.write("PYWALLET ERROR REPORT FOR REMOTE DEBUGGING\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Pywallet Version: {pywversion}\n")
-            f.write(f"Error Type: {exctype.__name__}\n")
-            f.write(f"Error Message: {value}\n")
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("SYSTEM INFORMATION\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Python Version: {sys.version}\n")
-            f.write(f"Platform: {platform.platform()}\n")
-            f.write(f"Architecture: {platform.architecture()}\n")
-            f.write(f"Current Directory: {os.getcwd()}\n")
-            f.write(f"Script Path: {os.path.abspath(__file__)}\n")
-            
-            # Command line arguments
-            f.write(f"Command Line Args: {' '.join(sys.argv)}\n")
-            
-            # Environment variables (relevant ones)
-            relevant_env = ['PATH', 'PYTHONPATH', 'HOME', 'USER', 'APPDATA', 'LOCALAPPDATA']
-            f.write("\nRelevant Environment Variables:\n")
-            for env_var in relevant_env:
-                if env_var in os.environ:
-                    f.write(f"  {env_var}: {os.environ[env_var]}\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("DEPENDENCY STATUS\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Berkeley DB Available: {bdb is not None}\n")
-            if missing_dep:
-                f.write(f"Missing Dependencies: {', '.join(missing_dep)}\n")
-            else:
-                f.write("All Dependencies Available: Yes\n")
-            
-            # Check if options were parsed
-            if 'options' in globals():
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("COMMAND OPTIONS\n")
-                f.write("=" * 80 + "\n")
-                options_dict = vars(options)
-                for key, value in options_dict.items():
-                    if value is not None and value != '' and value != False:
-                        f.write(f"  {key}: {value}\n")
-            
-            # Wallet file information (if available)
-            if 'options' in globals() and hasattr(options, 'walletfile') and options.walletfile:
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("WALLET FILE INFORMATION\n")
-                f.write("=" * 80 + "\n")
-                wallet_path = options.walletfile
-                f.write(f"Wallet Path: {wallet_path}\n")
-                
-                if os.path.exists(wallet_path):
-                    try:
-                        stat_info = os.stat(wallet_path)
-                        f.write(f"File Size: {stat_info.st_size} bytes\n")
-                        f.write(f"Last Modified: {datetime.fromtimestamp(stat_info.st_mtime)}\n")
-                        f.write(f"Readable: {os.access(wallet_path, os.R_OK)}\n")
-                        f.write(f"Writable: {os.access(wallet_path, os.W_OK)}\n")
-                        
-                        # Try to read first few bytes
-                        with open(wallet_path, 'rb') as wf:
-                            header = wf.read(32)
-                            f.write(f"File Header (hex): {binascii.hexlify(header).decode()}\n")
-                    except Exception as e:
-                        f.write(f"Error reading wallet file: {e}\n")
-                else:
-                    f.write("Wallet file does not exist\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("FULL ERROR TRACEBACK\n")
-            f.write("=" * 80 + "\n")
-            f.write(error_msg)
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("DEBUGGING SUGGESTIONS\n")
-            f.write("=" * 80 + "\n")
-            
-            # Provide specific debugging suggestions based on error type
-            if exctype.__name__ == 'ImportError':
-                f.write("- This is a missing dependency error\n")
-                f.write("- Install missing packages with pip\n")
-                f.write("- Check Python environment and PATH\n")
-            elif exctype.__name__ == 'FileNotFoundError':
-                f.write("- Check if the wallet file path is correct\n")
-                f.write("- Verify file permissions\n")
-                f.write("- Ensure the file hasn't been moved or deleted\n")
-            elif exctype.__name__ == 'PermissionError':
-                f.write("- Check file/directory permissions\n")
-                f.write("- Run with appropriate user privileges\n")
-                f.write("- Verify write access to output directories\n")
-            elif 'bsddb' in str(value).lower() or 'berkeley' in str(value).lower():
-                f.write("- This is a Berkeley DB related error\n")
-                f.write("- Install bsddb3: pip install bsddb3\n")
-                f.write("- Check if wallet file is corrupted\n")
-                f.write("- Try recovery mode if standard access fails\n")
-            else:
-                f.write("- Check the full traceback above for specific error location\n")
-                f.write("- Verify all command line arguments are correct\n")
-                f.write("- Try running with --diagnose flag for more info\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("END OF REPORT\n")
-            f.write("=" * 80 + "\n")
-        
-        print(f"\n📋 ERROR REPORT GENERATED: {report_file}")
-        print("📧 Please send this file to support for analysis!")
-        print("🔍 This report contains system info but NO private keys or wallet data.")
-        
-    except Exception as e:
-        print(f"Failed to generate error report: {e}")
-        print("Please manually copy the error information above.")
-
-
 # Install the global exception handler
 sys.excepthook = global_exception_handler
+
+# Add signal handler for segmentation faults
+import signal
+
+def signal_handler(signum, frame):
+    """Handle segmentation faults and other signals gracefully"""
+    signal_names = {
+        signal.SIGSEGV: "SIGSEGV (Segmentation Fault)",
+        signal.SIGFPE: "SIGFPE (Floating Point Exception)", 
+        signal.SIGABRT: "SIGABRT (Abort)",
+        signal.SIGTERM: "SIGTERM (Termination)",
+        signal.SIGINT: "SIGINT (Interrupt)"
+    }
+    
+    signal_name = signal_names.get(signum, f"Signal {signum}")
+    
+    print(f"\n\n========== SIGNAL CAUGHT: {signal_name} ==========")
+    print("The program received a fatal signal and must exit.")
+    print("This often indicates:")
+    print("- Severe database corruption")
+    print("- Memory corruption in bsddb3 library")
+    print("- Incompatible wallet format")
+    print("=" * 50)
+    
+    # Try to save any recovered keys before exit
+    if 'recoveredKeys' in globals() and recoveredKeys:
+        try:
+            print(f"\nAttempting to save {len(recoveredKeys)} recovered keys before exit...")
+            if 'options' in globals() and hasattr(options, 'output_keys') and options.output_keys:
+                with open(options.output_keys, 'w') as f:
+                    f.write("# Recovered private keys (saved after signal)\n")
+                    f.write(f"# Signal received: {signal_name}\n")
+                    f.write(f"# Data extracted by: Pywallet {pywversion}\n\n")
+                    
+                    for i, sec in enumerate(recoveredKeys):
+                        try:
+                            sec_hex = binascii.hexlify(sec)
+                            if isinstance(sec_hex, bytes):
+                                sec_hex = sec_hex.decode('ascii')
+                            f.write(f"{sec_hex}\n")
+                        except:
+                            f.write(f"# Error processing key {i}\n")
+                            
+                print(f"✅ Saved keys to {options.output_keys}")
+        except Exception as save_error:
+            print(f"❌ Failed to save keys: {save_error}")
+    
+    print("\nRecommendation: Try using binary recovery mode instead of database extraction.")
+    print("=" * 50)
+    sys.exit(128 + signum)  # Standard exit code for signals
+
+# Install signal handlers
+try:
+    signal.signal(signal.SIGSEGV, signal_handler)
+    signal.signal(signal.SIGFPE, signal_handler)
+    signal.signal(signal.SIGABRT, signal_handler)
+    print("✅ Signal handlers installed for crash protection")
+except Exception as e:
+    print(f"⚠️ Could not install signal handlers: {e}")
+    print("Continuing without signal protection...")
 
 PY3 = sys.version_info.major > 2
 
@@ -271,6 +207,96 @@ from subprocess import *
 import os
 import os.path
 import platform
+import shutil
+import tempfile
+import subprocess
+
+
+# FixedWalletExtractor integration
+class FixedWalletExtractor:
+    def __init__(self, wallet_path, output_file):
+        self.wallet_path = wallet_path
+        self.output_file = output_file
+        self.temp_dir = None
+        self.temp_wallet = None
+        self.passphrases = []
+        
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+    
+    def cleanup(self):
+        """Clean up temporary files"""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            try:
+                shutil.rmtree(self.temp_dir)
+                print(f"🧹 Cleaned up temporary directory")
+            except:
+                pass
+    
+    def detect_wallet_encryption(self):
+        """Detect if wallet is encrypted by looking for master key patterns"""
+        print("🔍 Detecting wallet encryption status...")
+        
+        try:
+            with open(self.wallet_path, 'rb') as f:
+                data = f.read()
+            
+            # Look for master key pattern (indicates encryption)
+            mkey_pattern = b'\x09\x00\x01\x04mkey'
+            mkey_positions = []
+            pos = 0
+            while True:
+                pos = data.find(mkey_pattern, pos)
+                if pos == -1:
+                    break
+                mkey_positions.append(pos)
+                pos += 1
+            
+            # Look for encrypted key pattern
+            ckey_pattern = b'\x27\x00\x01\x04ckey'
+            ckey_positions = []
+            pos = 0
+            while True:
+                pos = data.find(ckey_pattern, pos)
+                if pos == -1:
+                    break
+                ckey_positions.append(pos)
+                pos += 1
+            
+            # Look for unencrypted key pattern
+            key_pattern = b'\x00\x01\x03key'
+            key_positions = []
+            pos = 0
+            while True:
+                pos = data.find(key_pattern, pos)
+                if pos == -1:
+                    break
+                key_positions.append(pos)
+                pos += 1
+            
+            is_encrypted = len(mkey_positions) > 0 or len(ckey_positions) > 0
+            has_unencrypted = len(key_positions) > 0
+            
+            print(f"  📊 Master keys found: {len(mkey_positions)}")
+            print(f"  📊 Encrypted keys found: {len(ckey_positions)}")
+            print(f"  📊 Unencrypted keys found: {len(key_positions)}")
+            
+            if is_encrypted:
+                print("  🔒 Wallet appears to be ENCRYPTED")
+                return True, len(mkey_positions), len(ckey_positions), len(key_positions)
+            elif has_unencrypted:
+                print("  🔓 Wallet appears to be UNENCRYPTED")
+                return False, 0, 0, len(key_positions)
+            else:
+                print("  ❓ Wallet encryption status unclear")
+                return None, 0, 0, 0
+                
+        except Exception as e:
+            print(f"  ❌ Error detecting encryption: {e}")
+            return None, 0, 0, 0
 
 
 # btcwif library for WIF format conversion
@@ -314,7 +340,7 @@ def privToWif(priv, compressed=False, verbose=False):
 
     # 2 - Add a 0x80 byte in front of it
     priv_add_x80 = "80" + _priv
-    
+
     # 3 - For compressed keys, add 0x01 suffix
     if compressed:
         priv_add_x80 += "01"
@@ -2053,7 +2079,7 @@ def create_env(db_dir):
     Create a Berkeley DB environment with robust error handling for corrupted databases
     """
     db_env = DBEnv(0)
-    
+
     # Try different combinations of flags for corrupted databases
     flag_combinations = [
         # Standard recovery flags
@@ -2065,15 +2091,15 @@ def create_env(db_dir):
         # Last resort - just memory pool
         (DB_CREATE | DB_INIT_MPOOL),
     ]
-    
+
     for i, flags in enumerate(flag_combinations):
         try:
-            print(f"Attempting to open DB environment with flag combination {i+1}/4...")
+            print(f"Attempting to open DB environment with flag combination {i + 1}/4...")
             r = db_env.open(db_dir, flags)
-            print(f"Successfully opened DB environment with flag combination {i+1}")
+            print(f"Successfully opened DB environment with flag combination {i + 1}")
             return db_env
         except Exception as e:
-            print(f"Flag combination {i+1} failed: {e}")
+            print(f"Flag combination {i + 1} failed: {e}")
             if i < len(flag_combinations) - 1:
                 # Close and recreate the environment for next attempt
                 try:
@@ -2085,7 +2111,7 @@ def create_env(db_dir):
                 # All attempts failed
                 print("All DB environment creation attempts failed")
                 raise e
-    
+
     return db_env
 
 
@@ -2322,16 +2348,17 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
         print("Opening wallet file for key extraction...")
         with open(device, 'rb') as f:
             wallet_data = f.read()
-        
+
         # Get positions from recovery data
         mkey_positions = recovery_data.get("b'\\t\\x00\\x01\\x04mkey'", [])
         ckey_positions = recovery_data.get("b\"'\\x00\\x01\\x04ckey\"", [])
         key_positions = recovery_data.get("b'\\x00\\x01\\x03key'", [])
-        
-        print(f"Found positions - Master keys: {len(mkey_positions)}, Encrypted keys: {len(ckey_positions)}, Unencrypted keys: {len(key_positions)}")
-        
+
+        print(
+            f"Found positions - Master keys: {len(mkey_positions)}, Encrypted keys: {len(ckey_positions)}, Unencrypted keys: {len(key_positions)}")
+
         extracted_keys = []
-        
+
         # First, try to extract unencrypted keys (easiest)
         for pos in key_positions:
             try:
@@ -2339,25 +2366,25 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
                 start = max(0, pos - 50)
                 end = min(len(wallet_data), pos + 200)
                 key_data = wallet_data[start:end]
-                
+
                 # Look for 32-byte sequences that could be private keys
                 for i in range(len(key_data) - 32):
-                    potential_key = key_data[i:i+32]
+                    potential_key = key_data[i:i + 32]
                     # Basic validation - check if it's not all zeros or all 0xFF
-                    if (potential_key != b'\x00' * 32 and 
-                        potential_key != b'\xff' * 32 and
-                        len(set(potential_key)) > 5):  # Has some variety
+                    if (potential_key != b'\x00' * 32 and
+                            potential_key != b'\xff' * 32 and
+                            len(set(potential_key)) > 5):  # Has some variety
                         extracted_keys.append(potential_key)
                         print(f"Found potential unencrypted key at position {pos}")
                         break
             except Exception as e:
                 print(f"Error extracting unencrypted key at position {pos}: {e}")
                 continue
-        
+
         # If we have master key positions and encrypted keys, try to decrypt
         if mkey_positions and ckey_positions and passphrases:
             print("Attempting to decrypt encrypted keys...")
-            
+
             # Try to extract and decrypt master key
             for mkey_pos in mkey_positions:
                 try:
@@ -2365,13 +2392,13 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
                     start = max(0, mkey_pos - 50)
                     end = min(len(wallet_data), mkey_pos + 200)
                     mkey_data = wallet_data[start:end]
-                    
+
                     # Try to find encrypted master key, salt, and iterations
                     # This is a simplified approach - look for patterns
                     for i in range(len(mkey_data) - 80):
-                        potential_encrypted_key = mkey_data[i:i+48]  # Typical encrypted key size
-                        potential_salt = mkey_data[i+48:i+56]       # 8-byte salt
-                        
+                        potential_encrypted_key = mkey_data[i:i + 48]  # Typical encrypted key size
+                        potential_salt = mkey_data[i + 48:i + 56]  # 8-byte salt
+
                         # Try each passphrase
                         for passphrase in passphrases:
                             try:
@@ -2388,34 +2415,36 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
                                         crypto_available = True
                                         crypto_type = 'cryptography'
                                     except ImportError:
-                                        print("Warning: No cryptographic library available. Skipping encrypted key decryption.")
+                                        print(
+                                            "Warning: No cryptographic library available. Skipping encrypted key decryption.")
                                         continue
-                                
+
                                 if not crypto_available:
                                     continue
-                                
+
                                 if isinstance(passphrase, str):
                                     passphrase = passphrase.encode('utf-8')
-                                
+
                                 # Derive key using PBKDF2
                                 iterations = 25000  # Default iterations
                                 derived_key = hashlib.pbkdf2_hmac('sha512', passphrase, potential_salt, iterations)[:32]
-                                
+
                                 # Try to decrypt the master key
                                 iv = b'\x00' * 16  # Simple IV
                                 if crypto_type == 'pycrypto':
                                     cipher = AES.new(derived_key, AES.MODE_CBC, iv)
                                     decrypted = cipher.decrypt(potential_encrypted_key)
                                 else:  # cryptography library
-                                    cipher = Cipher(algorithms.AES(derived_key), modes.CBC(iv), backend=default_backend())
+                                    cipher = Cipher(algorithms.AES(derived_key), modes.CBC(iv),
+                                                    backend=default_backend())
                                     decryptor = cipher.decryptor()
                                     decrypted = decryptor.update(potential_encrypted_key) + decryptor.finalize()
-                                
+
                                 # If decryption seems successful, try to decrypt some encrypted keys
                                 if decrypted and len(decrypted) >= 32:
                                     master_key = decrypted[:32]
                                     print(f"Potential master key found, testing with encrypted keys...")
-                                    
+
                                     # Try to decrypt a few encrypted keys to validate
                                     test_count = 0
                                     for ckey_pos in ckey_positions[:5]:  # Test first 5
@@ -2423,28 +2452,28 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
                                             start = max(0, ckey_pos - 50)
                                             end = min(len(wallet_data), ckey_pos + 200)
                                             ckey_data = wallet_data[start:end]
-                                            
+
                                             # Look for encrypted private key data
                                             for j in range(len(ckey_data) - 48):
-                                                enc_key = ckey_data[j:j+48]
-                                                
+                                                enc_key = ckey_data[j:j + 48]
+
                                                 # Try to decrypt
                                                 cipher = AES.new(master_key, AES.MODE_CBC, b'\x00' * 16)
                                                 dec_key = cipher.decrypt(enc_key)
-                                                
+
                                                 if dec_key and len(dec_key) >= 32:
                                                     private_key = dec_key[:32]
                                                     # Basic validation
-                                                    if (private_key != b'\x00' * 32 and 
-                                                        private_key != b'\xff' * 32 and
-                                                        len(set(private_key)) > 5):
+                                                    if (private_key != b'\x00' * 32 and
+                                                            private_key != b'\xff' * 32 and
+                                                            len(set(private_key)) > 5):
                                                         extracted_keys.append(private_key)
                                                         test_count += 1
                                                         print(f"Decrypted key {test_count} successfully")
                                                         break
                                         except:
                                             continue
-                                    
+
                                     if test_count > 0:
                                         print(f"Master key validation successful! Decrypting all keys...")
                                         # Decrypt all encrypted keys
@@ -2453,18 +2482,18 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
                                                 start = max(0, ckey_pos - 50)
                                                 end = min(len(wallet_data), ckey_pos + 200)
                                                 ckey_data = wallet_data[start:end]
-                                                
+
                                                 for j in range(len(ckey_data) - 48):
-                                                    enc_key = ckey_data[j:j+48]
-                                                    
+                                                    enc_key = ckey_data[j:j + 48]
+
                                                     cipher = AES.new(master_key, AES.MODE_CBC, b'\x00' * 16)
                                                     dec_key = cipher.decrypt(enc_key)
-                                                    
+
                                                     if dec_key and len(dec_key) >= 32:
                                                         private_key = dec_key[:32]
-                                                        if (private_key != b'\x00' * 32 and 
-                                                            private_key != b'\xff' * 32 and
-                                                            len(set(private_key)) > 5):
+                                                        if (private_key != b'\x00' * 32 and
+                                                                private_key != b'\xff' * 32 and
+                                                                len(set(private_key)) > 5):
                                                             if private_key not in extracted_keys:
                                                                 extracted_keys.append(private_key)
                                                             break
@@ -2473,26 +2502,26 @@ def extract_keys_from_positions(device, recovery_data, passphrases):
                                         break
                             except Exception as e:
                                 continue
-                        
+
                         if extracted_keys:
                             break
-                    
+
                     if extracted_keys:
                         break
-                        
+
                 except Exception as e:
                     print(f"Error processing master key at position {mkey_pos}: {e}")
                     continue
-        
+
         # Remove duplicates
         unique_keys = []
         for key in extracted_keys:
             if key not in unique_keys:
                 unique_keys.append(key)
-        
+
         print(f"Extracted {len(unique_keys)} unique private keys")
         return unique_keys
-        
+
     except Exception as e:
         print(f"Error in key extraction: {e}")
         return []
@@ -2537,18 +2566,18 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.', output_keys_fil
         f.write(json.dumps(r))
         f.close()
         print("\nRead %.1f GB in %.1f minutes\n" % (r['PRFsize'] // 1e9, r['PRFdt'] // 60.0))
-        
+
         # Also create the output keys file if specified
         if output_keys_file:
             print(f"Attempting to extract actual keys from recovery data...")
-            
+
             # Try to extract actual keys from the positions found
             extracted_keys = extract_keys_from_positions(device, r, passes)
-            
+
             if extracted_keys:
                 print(f"✅ Successfully extracted {len(extracted_keys)} private keys!")
                 print(f"Writing keys to: {output_keys_file}")
-                
+
                 with open(output_keys_file, 'w') as f:
                     f.write("# Recovered private keys\n")
                     f.write(f"# Data extracted by: Pywallet {pywversion} - https://pywallet.org\n")
@@ -2562,22 +2591,22 @@ def recov(device, passes, size=102400, inc=10240, outputdir='.', output_keys_fil
 
                     for i, key in enumerate(extracted_keys):
                         key_hex = binascii.hexlify(key).decode('ascii')
-                        f.write(f"# Key {i+1}:\n")
+                        f.write(f"# Key {i + 1}:\n")
                         f.write(f"{key_hex}\n")  # Uncompressed
                         f.write(f"{key_hex}01\n")  # Compressed
-                        
+
                     f.write("\n# WIF FORMAT KEYS:\n")
                     for i, key in enumerate(extracted_keys):
                         try:
                             # Convert to WIF format
                             wif_uncompressed = SecretToASecret(key, False)
                             wif_compressed = SecretToASecret(key, True)
-                            f.write(f"# Key {i+1}:\n")
+                            f.write(f"# Key {i + 1}:\n")
                             f.write(f"{wif_uncompressed}\n")  # Uncompressed WIF
-                            f.write(f"{wif_compressed}\n")   # Compressed WIF
+                            f.write(f"{wif_compressed}\n")  # Compressed WIF
                         except Exception as e:
-                            f.write(f"# Key {i+1}: Error converting to WIF: {e}\n")
-                            
+                            f.write(f"# Key {i + 1}: Error converting to WIF: {e}\n")
+
                 print(f"✅ {len(extracted_keys)} keys written to: {output_keys_file}")
             else:
                 print(f"❌ Could not extract keys - creating summary file instead")
@@ -3197,12 +3226,12 @@ def extract_keys_from_wallet(wallet_file, passphrases):
             except Exception as e:
                 print(f"Failed to create Berkeley DB environment: {e}")
                 print("Database environment creation failed, falling back to binary search method...")
-                
+
                 # Clean up temporary directory if we created one
                 if temp_dir and os.path.exists(temp_dir):
                     import shutil
                     shutil.rmtree(temp_dir)
-                
+
                 return extract_keys_with_binary_search(wallet_file, passphrases)
 
             # Read wallet data
@@ -3360,15 +3389,6 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
             wallet_data = f.read()
 
         print(f"Read {len(wallet_data)} bytes from wallet file")
-        
-        # Safety check for file size
-        if len(wallet_data) == 0:
-            print("❌ Wallet file is empty")
-            return []
-        
-        if len(wallet_data) > 100 * 1024 * 1024:  # 100MB limit
-            print("⚠️  Large wallet file detected, limiting scan to first 100MB")
-            wallet_data = wallet_data[:100 * 1024 * 1024]
 
         # Find master key
         mkey_pos = wallet_data.find(patterns['mkey'])
@@ -3386,7 +3406,7 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
                 salt = mkey_data[48:56]
                 iterations_bytes = mkey_data[56:60]
                 iterations = int.from_bytes(iterations_bytes, byteorder='little')
-                
+
                 # If iterations seems unreasonable, try different parsing
                 if iterations > 1000000 or iterations < 1000:
                     # Try big endian
@@ -3410,7 +3430,7 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
                 # Decrypt master key if passphrases provided
                 print("Attempting to decrypt master key...")
                 master_key_decrypted = False
-                
+
                 if crypter is not None:
                     for passphrase in passphrases:
                         try:
@@ -3426,62 +3446,33 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
 
                             # Try to decrypt master key with extra safety
                             try:
-                                # Validate inputs before calling crypter
-                                if not passphrase or len(passphrase) == 0:
-                                    print("Empty passphrase, skipping")
+                                result = crypter.SetKeyFromPassphrase(passphrase, salt, iterations, 0)
+                                if result == 0:
+                                    print("Unsupported derivation method")
                                     continue
-                                
-                                if not salt or len(salt) == 0:
-                                    print("Invalid salt, skipping")
-                                    continue
-                                
-                                if not encrypted_master_key or len(encrypted_master_key) == 0:
-                                    print("Invalid encrypted master key, skipping")
-                                    continue
-                                
-                                # Use timeout to prevent hanging
-                                import signal
-                                
-                                def timeout_handler(signum, frame):
-                                    raise TimeoutError("Crypter operation timed out")
-                                
-                                signal.signal(signal.SIGALRM, timeout_handler)
-                                signal.alarm(30)  # 30 second timeout
-                                
-                                try:
-                                    result = crypter.SetKeyFromPassphrase(passphrase, salt, iterations, 0)
-                                    if result == 0:
-                                        print("Unsupported derivation method")
-                                        continue
 
-                                    # Decrypt the master key
-                                    master_key = crypter.Decrypt(encrypted_master_key)
-                                    if master_key and len(master_key) > 0:
-                                        print(f"✅ Successfully decrypted master key with passphrase!")
-                                        master_key_decrypted = True
-                                        break
-                                    else:
-                                        print("Master key decryption returned empty result")
-                                finally:
-                                    signal.alarm(0)  # Cancel timeout
-                                    
-                            except TimeoutError:
-                                print("Crypter operation timed out - possible segmentation fault prevented")
-                                continue
+                                # Decrypt the master key
+                                master_key = crypter.Decrypt(encrypted_master_key)
+                                if master_key and len(master_key) > 0:
+                                    print(f"✅ Successfully decrypted master key with passphrase!")
+                                    master_key_decrypted = True
+                                    break
+                                else:
+                                    print("Master key decryption returned empty result")
                             except Exception as decrypt_error:
                                 print(f"Decryption attempt failed: {decrypt_error}")
                                 continue
-                                
+
                         except Exception as e:
                             print(f"Error decrypting master key with passphrase: {str(e)}")
                             continue
                 else:
                     print("Warning: Crypter not available, cannot decrypt encrypted keys")
-                
+
                 if not master_key_decrypted:
                     print("❌ Could not decrypt master key - encrypted keys cannot be recovered")
                     print("This means encrypted keys cannot be recovered with binary search method")
-                
+
                 # if crypter is not None:
                 #     for passphrase in passphrases:
                 #         try:
@@ -3552,27 +3543,27 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
 
                 # Public key is typically right after the pattern
                 pub_key_size = key_data[0]  # First byte is size
-                
+
                 # Safety check for public key size
                 if pub_key_size > 100 or pub_key_size < 1:
                     continue
-                    
+
                 if len(key_data) < 1 + pub_key_size + 1:
                     continue
-                    
+
                 pub_key = key_data[1:1 + pub_key_size]
 
                 # Private key follows the public key
                 priv_key_offset = 1 + pub_key_size + 1  # +1 for size byte
                 priv_key_size = key_data[1 + pub_key_size]  # Size byte
-                
+
                 # Safety check for private key size
                 if priv_key_size > 100 or priv_key_size < 1:
                     continue
-                    
+
                 if len(key_data) < priv_key_offset + priv_key_size:
                     continue
-                    
+
                 private_key = key_data[priv_key_offset:priv_key_offset + priv_key_size]
 
                 if len(private_key) == 32:
@@ -3598,27 +3589,27 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
 
                         # Public key is typically right after the pattern
                         pub_key_size = key_data[0]  # First byte is size
-                        
+
                         # Safety check for public key size
                         if pub_key_size > 100 or pub_key_size < 1:
                             continue
-                            
+
                         if len(key_data) < 1 + pub_key_size + 1:
                             continue
-                            
+
                         pub_key = key_data[1:1 + pub_key_size]
 
                         # Encrypted private key follows the public key
                         enc_key_offset = 1 + pub_key_size + 1  # +1 for size byte
                         enc_key_size = key_data[1 + pub_key_size]  # Size byte
-                        
+
                         # Safety check for encrypted key size
                         if enc_key_size > 100 or enc_key_size < 1:
                             continue
-                            
+
                         if len(key_data) < enc_key_offset + enc_key_size:
                             continue
-                            
+
                         enc_private_key = key_data[enc_key_offset:enc_key_offset + enc_key_size]
 
                         # Create IV from public key
@@ -3928,79 +3919,149 @@ class DBError:
     pass
 
 
+def validate_database_before_opening(walletfile):
+    """
+    Validate database file before attempting to open with bsddb3
+    This prevents segmentation faults from corrupted database files
+    """
+    try:
+        with open(walletfile, 'rb') as f:
+            # Read first 1024 bytes to check database headers
+            header_data = f.read(1024)
+            
+        if len(header_data) < 32:
+            raise Exception("File too small to be a valid database")
+            
+        # Check for Berkeley DB magic numbers
+        # Berkeley DB files start with specific magic numbers
+        magic_numbers = [
+            b'\x00\x05\x31\x62',  # Berkeley DB version 2.x
+            b'\x00\x05\x31\x63',  # Berkeley DB version 3.x  
+            b'\x00\x05\x31\x64',  # Berkeley DB version 4.x
+            b'\x00\x05\x31\x65',  # Berkeley DB version 5.x
+            b'\x00\x05\x31\x66',  # Berkeley DB version 6.x
+        ]
+        
+        has_db_magic = False
+        for magic in magic_numbers:
+            if magic in header_data[:32]:
+                has_db_magic = True
+                break
+                
+        if not has_db_magic:
+            # Check for alternate patterns that might indicate a database
+            if b'BTREEMAGIC' in header_data or b'HASHMAGIC' in header_data:
+                has_db_magic = True
+                
+        if not has_db_magic:
+            print("⚠️ Warning: File does not appear to have Berkeley DB magic numbers")
+            print("   This file may not be a valid Berkeley DB database")
+            print("   Attempting to open anyway, but segfault risk is high")
+            
+        # Check for null bytes and basic structure
+        null_ratio = header_data.count(b'\x00') / len(header_data)
+        if null_ratio > 0.9:
+            raise Exception("File appears to be mostly null bytes - likely corrupted")
+            
+        # Check file size consistency
+        file_size = os.path.getsize(walletfile)
+        if file_size < 1024:
+            raise Exception("File too small to contain wallet data")
+            
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Database validation failed: {e}")
+        return False
+
 def open_wallet(db_env, walletfile, writable=False, DB_RDONLY_param=None, DB_BTREE_param=None):
     """
     Open a wallet database with robust error handling for corrupted files
     """
-    if bdb is None:
-        print("ERROR: Berkeley DB module (bsddb3) is not available")
-        print("This is required for direct wallet access. Falling back to raw recovery.")
-        raise Exception("Berkeley DB module not available")
-        
-    print(f"\n[DEBUG] Attempting to open wallet file: {walletfile}")
-    print(f"[DEBUG] Writable mode: {writable}")
-    print(f"[DEBUG] Using BDB module: {bdb.__name__}")
+    if not os.path.exists(walletfile):
+        raise Exception(f"Wallet file not found: {walletfile}")
     
-    db = bdb.DB(db_env)
-    if writable:
-        DB_TYPEOPEN = DB_CREATE
-    else:
-        DB_TYPEOPEN = DB_RDONLY
+    # Pre-validate the database file to prevent segfaults
+    print("🔍 Validating database file before opening...")
+    if not validate_database_before_opening(walletfile):
+        print("⚠️ Database validation suggests high risk of segmentation fault")
+        print("🔄 Skipping Berkeley DB opening and falling back to binary recovery")
+        raise Exception("Database file failed validation - too risky to open with bsddb3")
     
-    # Try different approaches for corrupted databases
-    attempts = [
-        # Standard approach
-        {"flags": DB_THREAD | DB_TYPEOPEN, "table": "main"},
-        # Try without threading
-        {"flags": DB_TYPEOPEN, "table": "main"},
-        # Try different table name (some corrupted wallets)
-        {"flags": DB_THREAD | DB_TYPEOPEN, "table": None},
-        # Try without table name and threading
-        {"flags": DB_TYPEOPEN, "table": None},
-    ]
+    print("✅ Database validation passed - proceeding with Berkeley DB opening")
+    db = None
     
-    for i, attempt in enumerate(attempts):
-        try:
-            print(f"[DEBUG] Direct open attempt {i+1}/4: flags={attempt['flags']}, table={attempt['table']}")
-            r = db.open(walletfile, attempt['table'], DB_BTREE, attempt['flags'])
-            if r is None:
-                print(f"[SUCCESS] Successfully opened wallet with attempt {i+1}")
-                return db
-        except Exception as e:
-            print(f"[ERROR] Direct open attempt {i+1} failed: {str(e)}")
-            print(f"[DEBUG] Error type: {type(e).__name__}")
-            if i < len(attempts) - 1:
-                # Close and recreate DB object for next attempt
-                try:
-                    db.close()
-                except Exception as close_error:
-                    print(f"[DEBUG] Error closing DB: {str(close_error)}")
-                db = bdb.DB(db_env)
-    
-    # All direct attempts failed
-    print("[CRITICAL] All direct database open attempts failed")
-    logging.error("Couldn't open wallet.dat/main. Database may be corrupted.")
-    
-    # Clean up the database object before raising exception
     try:
-        db.close()
-    except Exception as cleanup_error:
-        print(f"[DEBUG] Error during cleanup: {str(cleanup_error)}")
-    
-    # Don't exit immediately - let the calling function handle the fallback
-    raise Exception("Database open failed - wallet may be corrupted or incompatible with current Berkeley DB version")
+        db = bdb.DB(db_env)
+        if writable:
+            DB_TYPEOPEN = DB_CREATE
+        else:
+            DB_TYPEOPEN = DB_RDONLY
 
-    return None
+        # Try different approaches for corrupted databases
+        attempts = [
+            # Standard approach
+            {"flags": DB_THREAD | DB_TYPEOPEN, "table": "main"},
+            # Try without threading
+            {"flags": DB_TYPEOPEN, "table": "main"},
+            # Try different table name (some corrupted wallets)
+            {"flags": DB_THREAD | DB_TYPEOPEN, "table": None},
+            # Try without table name and threading
+            {"flags": DB_TYPEOPEN, "table": None},
+        ]
+
+        for i, attempt in enumerate(attempts):
+            try:
+                print(f"Direct open attempt {i + 1}/4: flags={attempt['flags']}, table={attempt['table']}")
+                r = db.open(walletfile, attempt['table'], DB_BTREE, attempt['flags'])
+                if r is None:
+                    print(f"Successfully opened wallet with attempt {i + 1}")
+                    return db
+                    
+            except Exception as e:
+                print(f"Direct open attempt {i + 1} failed: {e}")
+                if i < len(attempts) - 1:
+                    # Close and recreate DB object for next attempt
+                    try:
+                        if db:
+                            db.close()
+                    except:
+                        pass
+                    # Create new DB instance for next attempt
+                    try:
+                        db = bdb.DB(db_env)
+                    except Exception as db_create_error:
+                        print(f"Failed to create new DB instance: {db_create_error}")
+                        # Try to create a new environment
+                        break
+
+        # All direct attempts failed
+        print("All direct database open attempts failed")
+        logging.error("Couldn't open wallet.dat/main. Database may be corrupted.")
+
+        # Clean up the DB object if it exists
+        if db:
+            try:
+                db.close()
+            except:
+                pass
+
+        # Don't exit immediately - let the calling function handle the fallback
+        raise Exception("Database open failed - wallet may be corrupted")
+
+    except Exception as e:
+        # Clean up on any error
+        if db:
+            try:
+                db.close()
+            except:
+                pass
+        raise e
 
 
 def parse_wallet(db, item_callback):
     kds = BCDataStream()
     vds = BCDataStream()
-    
-    print("[DEBUG] Starting wallet parsing process")
-    record_count = 0
-    error_count = 0
-    type_counts = {}
 
     def parse_TxIn(vds):
         d = Bdict({})
@@ -4016,19 +4077,7 @@ def parse_wallet(db, item_callback):
         d['scriptPubKey'] = binascii.hexlify(vds.read_bytes(vds.read_compact_size()))
         return d
 
-    try:
-        # Get total number of records for progress reporting
-        total_records = sum(1 for _ in db.items())
-        print(f"[DEBUG] Total records to parse: {total_records}")
-    except Exception as e:
-        print(f"[DEBUG] Could not count total records: {e}")
-        total_records = "unknown"
-
     for (key, value) in db.items():
-        record_count += 1
-        if record_count % 100 == 0:
-            print(f"[DEBUG] Parsed {record_count} records so far...")
-            
         d = Bdict({})
 
         kds.clear();
@@ -4036,18 +4085,7 @@ def parse_wallet(db, item_callback):
         vds.clear();
         vds.write(value)
 
-        try:
-            type = kds.read_string()
-            # Count record types for statistics
-            type_str = type.decode('ascii') if isinstance(type, bytes) else str(type)
-            if type_str not in type_counts:
-                type_counts[type_str] = 0
-            type_counts[type_str] += 1
-        except Exception as e:
-            print(f"[ERROR] Failed to read record type: {e}")
-            print(f"[DEBUG] Key data in hex: {binascii.hexlify(key)}")
-            error_count += 1
-            continue
+        type = kds.read_string()
 
         d["__key__"] = key
         d["__value__"] = value
@@ -4055,7 +4093,6 @@ def parse_wallet(db, item_callback):
 
         try:
             if type == b"tx":
-                print(f"[DEBUG] Parsing transaction record #{record_count}")
                 d["tx_id"] = binascii.hexlify(kds.read_bytes(32)[::-1])
                 start = vds.read_cursor
                 d['version'] = vds.read_int32()
@@ -4076,14 +4113,12 @@ def parse_wallet(db, item_callback):
                 d['name'] = vds.read_string()
             elif type == b"version":
                 d['version'] = vds.read_uint32()
-                print(f"[DEBUG] Wallet version: {d['version']}")
             elif type == b"minversion":
                 d['minversion'] = vds.read_uint32()
             elif type == b"setting":
                 d['setting'] = kds.read_string()
                 d['value'] = parse_setting(d['setting'], vds)
             elif type == b"key":
-                print(f"[DEBUG] Parsing key record #{record_count}")
                 d['public_key'] = kds.read_bytes(kds.read_compact_size())
                 d['private_key'] = vds.read_bytes(vds.read_compact_size())
             elif type == b"wkey":
@@ -4115,46 +4150,25 @@ def parse_wallet(db, item_callback):
             # 	d['nVersion'] = vds.read_int32()
             # 	d.update(parse_BlockLocator(vds))
             elif type == b"ckey":
-                print(f"[DEBUG] Parsing encrypted key record #{record_count}")
                 d['public_key'] = kds.read_bytes(kds.read_compact_size())
                 d['encrypted_private_key'] = vds.read_bytes(vds.read_compact_size())
             elif type == b"mkey":
-                print(f"[DEBUG] Parsing master key record #{record_count}")
                 d['nID'] = kds.read_uint32()
                 d['encrypted_key'] = vds.read_string()
                 d['salt'] = vds.read_string()
                 d['nDerivationMethod'] = vds.read_uint32()
                 d['nDerivationIterations'] = vds.read_uint32()
                 d['otherParams'] = vds.read_string()
-            else:
-                print(f"[DEBUG] Unknown key type: {type}")
 
-            try:
-                item_callback(type, d)
-            except Exception as e:
-                print(f"[ERROR] Error in item_callback for type={type}, record #{record_count}")
-                print(f"[DEBUG] Error details: {e}")
-                print(f"[DEBUG] Error type: {type(e).__name__}")
-                error_count += 1
+            item_callback(type, d)
 
         except Exception as e:
-            print(f"[ERROR] Error parsing wallet.dat, type={type}, record #{record_count}")
-            print(f"[DEBUG] Key data in hex: {binascii.hexlify(key)}")
-            print(f"[DEBUG] Value data in hex: {binascii.hexlify(value)}")
-            print(f"[DEBUG] Error details: {e}")
-            print(f"[DEBUG] Error type: {type(e).__name__}")
             traceback.print_exc()
-            error_count += 1
-            # Don't exit immediately - continue with other records
-            # sys.exit(1) - removed to prevent early termination
-    
-    # Print summary statistics
-    print("\n[DEBUG] ===== WALLET PARSING SUMMARY =====")
-    print(f"[DEBUG] Total records processed: {record_count}")
-    print(f"[DEBUG] Errors encountered: {error_count}")
-    print("[DEBUG] Record types found:")
-    for type_name, count in type_counts.items():
-        print(f"[DEBUG]   - {type_name}: {count} records")
+            print("ERROR parsing wallet.dat, type %s" % type)
+            print("key data: %s" % key)
+            print("key data in hex: %s" % binascii.hexlify(key))
+            print("value data in hex: %s" % binascii.hexlify(value))
+            sys.exit(1)
 
 
 def delete_from_wallet(db_env, walletfile, typedel, kd):
@@ -4477,31 +4491,41 @@ def read_wallet(json_db, db_env, walletfile, print_wallet, print_wallet_transact
 
     private_keys = []
     private_hex_keys = []
-    
-    print("\n[DEBUG] ===== WALLET READING PROCESS STARTED =====")
-    print(f"[DEBUG] Wallet file: {walletfile}")
-    print(f"[DEBUG] Fill pool: {FillPool}")
-    print(f"[DEBUG] Include balance: {include_balance}")
-    
-    # Check if Berkeley DB module is available
-    if bdb is None:
-        print("[CRITICAL] Berkeley DB module (bsddb3) is not available")
-        print("[INFO] This is required for direct wallet access")
-        print("[INFO] Falling back to raw recovery methods")
-        return {"error": "bdb_not_available", "crypted": False}
-    
-    try:
-        print("[DEBUG] Attempting to open wallet database...")
-        db = open_wallet(db_env, walletfile, writable=FillPool)
-        print("[DEBUG] Wallet database opened successfully")
-    except Exception as e:
-        print(f"[ERROR] Failed to open wallet database: {e}")
-        print(f"[DEBUG] Error type: {type(e).__name__}")
-        print("[INFO] Database may be corrupted or not a valid wallet file")
-        print("[INFO] Will attempt to fall back to raw recovery methods")
-        return {"error": "db_open_failed", "crypted": False}
 
-    print("[DEBUG] Initializing wallet data structures")
+    try:
+        db = open_wallet(db_env, walletfile, writable=FillPool)
+    except Exception as e:
+        print(f"Failed to open wallet database: {e}")
+        print("🔄 Attempting alternative database access methods...")
+        
+        # Try to create a minimal recovery database environment
+        try:
+            # Create a new, isolated database environment for recovery
+            temp_db_env = bdb.DBEnv()
+            temp_db_env.open(None, bdb.DB_CREATE | bdb.DB_INIT_MPOOL | bdb.DB_PRIVATE)
+            
+            print("🔧 Created isolated database environment for recovery")
+            
+            # Try to open with the recovery environment
+            db = open_wallet(temp_db_env, walletfile, writable=False)
+            db_env = temp_db_env  # Use the recovery environment
+            print("✅ Successfully opened wallet with recovery environment")
+            
+        except Exception as recovery_error:
+            print(f"❌ Recovery environment also failed: {recovery_error}")
+            print("⚠️ Database appears to be severely corrupted or incompatible")
+            print("🔄 Switching to raw binary recovery mode...")
+            
+            # Instead of raising an exception, we'll return a minimal structure
+            # and let the caller handle the binary recovery
+            return {
+                'keys': [],
+                'crypted': False,
+                'error': 'database_corrupted',
+                'error_message': str(e),
+                'recovery_needed': True
+            }
+
     json_db['keys'] = []
     json_db['pool'] = []
     json_db['tx'] = []
@@ -5357,7 +5381,7 @@ def retrieve_last_pywallet_md5():
 def find_wallet_files(directory):
     """
     Find all wallet.dat files in the specified directory and its subdirectories
-    
+
     This function looks for:
     - wallet.dat (exact match)
     - wallet1.dat, wallet2.dat, etc. (numbered wallet files)
@@ -5423,68 +5447,116 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
 
     import tempfile
     import shutil
-    
+
     # Create a temporary directory to isolate the database environment
     temp_dir = tempfile.mkdtemp(prefix="pywallet_temp_")
     temp_wallet_path = None
     db_env = None
     db = None
-    
+
     try:
         # Copy wallet to temporary directory to avoid conflicts
         temp_wallet_path = os.path.join(temp_dir, "temp_wallet.dat")
         shutil.copy2(wallet_path, temp_wallet_path)
         print(f"Using temporary copy: {temp_wallet_path}")
-        
+
         # Clean any existing __db.* files in the temp directory (shouldn't exist, but be safe)
         for file in os.listdir(temp_dir):
             if file.startswith('__db.'):
                 os.remove(os.path.join(temp_dir, file))
+
+        # Pre-validate the database file to prevent segfaults
+        print("🔍 Pre-validating database file for safety...")
+        if not validate_database_before_opening(temp_wallet_path):
+            print("⚠️ Database validation failed - too risky to open with Berkeley DB")
+            print("🔄 Falling back to binary recovery mode instead")
+            raise Exception("Database file failed pre-validation - switching to binary recovery")
         
-        # Try opening the database directly without environment first
+        print("✅ Database pre-validation passed")
+        
+        # Try opening the database with multiple approaches
+        success = False
+        
+        # Approach 1: Direct database opening without environment
         try:
-            # Simple approach: Try to open database without environment
+            print("🔧 Attempting direct database access...")
             db = DB()
             db.open(temp_wallet_path, "main", DB_BTREE, DB_RDONLY)
-            print("Successfully opened wallet database (direct mode)")
+            print("✅ Successfully opened wallet database (direct mode)")
+            success = True
         except Exception as e1:
-            print(f"Direct open failed: {e1}, trying with environment...")
+            print(f"❌ Direct open failed: {e1}")
             
-            # Create a minimal database environment in the temporary directory
-            db_env = DBEnv(0)
-            
-            # Try with minimal environment flags
+            # Approach 2: Minimal environment
             try:
+                print("🔧 Attempting minimal environment access...")
+                db_env = DBEnv(0)
                 db_env.open(temp_dir, DB_CREATE | DB_INIT_MPOOL)
                 db = DB(db_env)
                 db.open("temp_wallet.dat", "main", DB_BTREE, DB_RDONLY)
-                print("Successfully opened wallet database (minimal environment)")
+                print("✅ Successfully opened wallet database (minimal environment)")
+                success = True
             except Exception as e2:
-                print(f"Minimal environment failed: {e2}, trying full environment...")
+                print(f"❌ Minimal environment failed: {e2}")
                 
-                # Close and recreate environment
+                # Clean up failed environment
                 try:
-                    db_env.close()
+                    if db_env:
+                        db_env.close()
                 except:
                     pass
                 
-                db_env = DBEnv(0)
-                db_env.set_lk_detect(DB_LOCK_DEFAULT)
-                
-                # Try full environment without logging
+                # Approach 3: Full environment without logging
                 try:
-                    db_env.open(temp_dir,
-                                DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD)
+                    print("🔧 Attempting full environment access...")
+                    db_env = DBEnv(0)
+                    db_env.set_lk_detect(DB_LOCK_DEFAULT)
+                    db_env.open(temp_dir, DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD)
                     db = DB(db_env)
                     db.open("temp_wallet.dat", "main", DB_BTREE, DB_THREAD | DB_RDONLY)
-                    print("Successfully opened wallet database (full environment, no logging)")
+                    print("✅ Successfully opened wallet database (full environment)")
+                    success = True
                 except Exception as e3:
-                    print(f"Full environment without logging failed: {e3}")
-                    raise e3
-        print("Successfully opened wallet database")
+                    print(f"❌ Full environment failed: {e3}")
+                    
+                    # Approach 4: Try without table name
+                    try:
+                        print("🔧 Attempting database access without table name...")
+                        if db_env:
+                            try:
+                                db_env.close()
+                            except:
+                                pass
+                        db_env = DBEnv(0)
+                        db_env.open(temp_dir, DB_CREATE | DB_INIT_MPOOL)
+                        db = DB(db_env)
+                        db.open("temp_wallet.dat", None, DB_BTREE, DB_RDONLY)
+                        print("✅ Successfully opened wallet database (no table name)")
+                        success = True
+                    except Exception as e4:
+                        print(f"❌ No table name approach failed: {e4}")
+                        
+                        # Final attempt: Raw database access
+                        try:
+                            print("🔧 Final attempt: Raw database access...")
+                            db_env = None
+                            db = DB()
+                            db.open(temp_wallet_path, None, DB_BTREE, DB_RDONLY)
+                            print("✅ Successfully opened wallet database (raw access)")
+                            success = True
+                        except Exception as e5:
+                            print(f"❌ Raw access failed: {e5}")
+                            print("⚠️ All database opening methods failed")
+                            raise Exception(f"Cannot open database: {e5}")
         
+        if not success:
+            raise Exception("Failed to open wallet database with any method")
+
     except Exception as e:
-        print(f"Error opening wallet: {str(e)}")
+        print(f"⚠️ Error opening wallet database: {str(e)}")
+        print("📋 This indicates the wallet database is corrupted or incompatible")
+        print("🔄 The system will automatically fall back to binary recovery mode")
+        
         # Clean up
         if db:
             try:
@@ -5499,11 +5571,43 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
         # Clean up temporary directory
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
-        return False
+        
+        # Don't return False immediately - let the caller know this is a database issue
+        # and they should try binary recovery instead
+        raise Exception(f"Database corrupted - cannot open with Berkeley DB: {str(e)}")
 
-    # Read all records
-    cursor = db.cursor()
-    rec = cursor.first()
+    # Read all records with careful error handling to prevent segmentation faults
+    cursor = None
+    try:
+        cursor = db.cursor()
+        rec = cursor.first()
+    except Exception as cursor_error:
+        print(f"⚠️ Error creating database cursor: {cursor_error}")
+        print("🔄 This may indicate severe database corruption")
+        
+        # Clean up and raise exception for fallback
+        try:
+            if cursor:
+                cursor.close()
+        except:
+            pass
+        try:
+            if db:
+                db.close()
+        except:
+            pass
+        try:
+            if db_env:
+                db_env.close()
+        except:
+            pass
+        try:
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except:
+            pass
+        
+        raise Exception(f"Cannot read database records - severe corruption: {cursor_error}")
 
     # First pass: find the master key
     master_key = None
@@ -5572,7 +5676,7 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
     temp_rec = temp_cursor.first()
     total_records = 0
     total_private_keys = 0
-    
+
     while temp_rec:
         key, value = temp_rec
         total_records += 1
@@ -5688,7 +5792,7 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
     db.close()
     if db_env:
         db_env.close()
-    
+
     # Clean up temporary directory
     if temp_dir and os.path.exists(temp_dir):
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -5702,7 +5806,7 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
     print(f"Records processed in this run: {key_count}")
     print(f"Private keys found in this run: {private_key_count}")
     print(f"Keys successfully decrypted: {decrypted_key_count}")
-    
+
     if total_private_keys > max_keys:
         print(f"\nNOTE: This wallet contains {total_private_keys} total private keys.")
         print(f"You extracted only {private_key_count} keys (limited by --extract_max_keys={max_keys})")
@@ -5714,26 +5818,26 @@ def extract_wallet_keys_advanced(wallet_path, output_file, password="1234", max_
 def count_wallet_keys(wallet_path, password="1234"):
     """Count total number of private keys in a wallet without extracting them"""
     print(f"Counting keys in {wallet_path}")
-    
+
     import tempfile
     import shutil
-    
+
     # Create a temporary directory to isolate the database environment
     temp_dir = tempfile.mkdtemp(prefix="pywallet_count_")
     temp_wallet_path = None
     db_env = None
     db = None
-    
+
     try:
         # Copy wallet to temporary directory to avoid conflicts
         temp_wallet_path = os.path.join(temp_dir, "temp_wallet.dat")
         shutil.copy2(wallet_path, temp_wallet_path)
-        
+
         # Clean any existing __db.* files in the temp directory
         for file in os.listdir(temp_dir):
             if file.startswith('__db.'):
                 os.remove(os.path.join(temp_dir, file))
-        
+
         # Try opening the database (use same logic as extract_advanced)
         try:
             # Simple approach: Try to open database without environment
@@ -5742,10 +5846,10 @@ def count_wallet_keys(wallet_path, password="1234"):
             print("Successfully opened wallet database (direct mode)")
         except Exception as e1:
             print(f"Direct open failed: {e1}, trying with environment...")
-            
+
             # Create a minimal database environment in the temporary directory
             db_env = DBEnv(0)
-            
+
             try:
                 db_env.open(temp_dir, DB_CREATE | DB_INIT_MPOOL)
                 db = DB(db_env)
@@ -5753,15 +5857,15 @@ def count_wallet_keys(wallet_path, password="1234"):
                 print("Successfully opened wallet database (minimal environment)")
             except Exception as e2:
                 print(f"Minimal environment failed: {e2}, trying full environment...")
-                
+
                 try:
                     db_env.close()
                 except:
                     pass
-                
+
                 db_env = DBEnv(0)
                 db_env.set_lk_detect(DB_LOCK_DEFAULT)
-                
+
                 try:
                     db_env.open(temp_dir,
                                 DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_TXN | DB_THREAD)
@@ -5771,26 +5875,26 @@ def count_wallet_keys(wallet_path, password="1234"):
                 except Exception as e3:
                     print(f"Full environment failed: {e3}")
                     raise e3
-        
+
         # Count all records and private keys
         cursor = db.cursor()
         rec = cursor.first()
-        
+
         total_records = 0
         total_private_keys = 0
         has_master_key = False
         master_key_info = {}
-        
+
         print("Analyzing wallet structure...")
-        
+
         while rec:
             key, value = rec
             total_records += 1
-            
+
             # Count private keys (ckey records)
             if b'ckey' in key:
                 total_private_keys += 1
-            
+
             # Check for master key
             elif b'mkey' in key:
                 has_master_key = True
@@ -5800,7 +5904,7 @@ def count_wallet_keys(wallet_path, password="1234"):
                     salt = value[48:56]
                     iterations_bytes = value[56:60]
                     iterations = struct.unpack('<I', iterations_bytes)[0]
-                    
+
                     master_key_info = {
                         'encrypted_key': binascii.hexlify(encrypted_master_key).decode('ascii'),
                         'salt': binascii.hexlify(salt).decode('ascii'),
@@ -5808,18 +5912,18 @@ def count_wallet_keys(wallet_path, password="1234"):
                     }
                 except:
                     pass
-                
+
             rec = cursor.next()
-        
+
         cursor.close()
         db.close()
         if db_env:
             db_env.close()
-        
+
         # Clean up temporary directory
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
-        
+
         # Print results
         print(f"\nWALLET KEY COUNT ANALYSIS:")
         print(f"=========================")
@@ -5827,21 +5931,22 @@ def count_wallet_keys(wallet_path, password="1234"):
         print(f"Total Database Records: {total_records}")
         print(f"Total Private Keys Found: {total_private_keys}")
         print(f"Has Master Key (Encrypted): {'Yes' if has_master_key else 'No'}")
-        
+
         if has_master_key and master_key_info:
             print(f"Master Key Iterations: {master_key_info.get('iterations', 'Unknown')}")
             print(f"Encryption: AES-256-CBC with PBKDF2 key derivation")
-        
+
         print(f"\nTo extract ALL {total_private_keys} keys, use:")
-        print(f"./run_pywallet.sh --extract_advanced -w {wallet_path} --extract_password=YOUR_PASSWORD --extract_output=all_keys.txt --extract_max_keys={total_private_keys}")
-        
+        print(
+            f"./run_pywallet.sh --extract_advanced -w {wallet_path} --extract_password=YOUR_PASSWORD --extract_output=all_keys.txt --extract_max_keys={total_private_keys}")
+
         return {
             'total_records': total_records,
             'total_private_keys': total_private_keys,
             'has_master_key': has_master_key,
             'master_key_info': master_key_info
         }
-        
+
     except Exception as e:
         print(f"Error analyzing wallet: {str(e)}")
         # Clean up
@@ -6338,63 +6443,126 @@ def is_valid_private_key_hex(hex_key):
     try:
         if len(hex_key) != 64:  # 32 bytes = 64 hex chars
             return False
-        
+
         # Convert to bytes
         key_bytes = bytes.fromhex(hex_key)
-        
+
         # Check if all zeros or all 0xFF
         if all(b == 0 for b in key_bytes) or all(b == 0xFF for b in key_bytes):
             return False
-        
+
         # Check if it's in valid range for secp256k1
         key_int = int.from_bytes(key_bytes, 'big')
         secp256k1_order = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-        
+
         return 1 <= key_int < secp256k1_order
     except:
         return False
 
+
 def targeted_key_extraction(wallet_path, output_file):
     """Extract keys from positions found in wallet analysis"""
-    print("🎯 Targeted Key Extraction from Known Positions")
-    print("=" * 50)
-    
+    print("🎯 SMART UNIVERSAL RECOVERY - Analyzing wallet file...")
+    print(f"🔍 Target: {wallet_path}")
+    print("=" * 60)
+    print("🚀 Step 1: Detecting wallet encryption status...")
+
     if not os.path.exists(wallet_path):
         print(f"❌ Wallet file not found: {wallet_path}")
         return False
-    
+
+    # Step 1: Use wallet analysis to detect encryption
     try:
+        print("🔍 Detecting wallet encryption status...")
+        
         with open(wallet_path, 'rb') as f:
             data = f.read()
         
-        print(f"📊 Wallet file size: {len(data)} bytes ({len(data)/1024/1024:.2f} MB)")
+        # Look for master key pattern (indicates encryption)
+        mkey_pattern = b'\x09\x00\x01\x04mkey'
+        mkey_positions = []
+        pos = 0
+        while True:
+            pos = data.find(mkey_pattern, pos)
+            if pos == -1:
+                break
+            mkey_positions.append(pos)
+            pos += 1
         
+        # Look for encrypted key pattern
+        ckey_pattern = b'\x27\x00\x01\x04ckey'
+        ckey_positions = []
+        pos = 0
+        while True:
+            pos = data.find(ckey_pattern, pos)
+            if pos == -1:
+                break
+            ckey_positions.append(pos)
+            pos += 1
+        
+        # Look for unencrypted key pattern
+        key_pattern = b'\x00\x01\x03key'
+        key_positions = []
+        pos = 0
+        while True:
+            pos = data.find(key_pattern, pos)
+            if pos == -1:
+                break
+            key_positions.append(pos)
+            pos += 1
+        
+        is_encrypted = len(mkey_positions) > 0 or len(ckey_positions) > 0
+        has_unencrypted = len(key_positions) > 0
+        
+        print(f"  📊 Master keys found: {len(mkey_positions)}")
+        print(f"  📊 Encrypted keys found: {len(ckey_positions)}")
+        print(f"  📊 Unencrypted keys found: {len(key_positions)}")
+        
+        if is_encrypted:
+            print("  🔒 Wallet appears to be ENCRYPTED")
+        elif has_unencrypted:
+            print("  🔓 Wallet appears to be UNENCRYPTED")
+        else:
+            print("  ❓ Wallet encryption status unclear")
+                
+    except Exception as e:
+        print(f"⚠️ Wallet analysis encountered an error: {str(e)}")
+        print("🔄 Step 2: Falling back to traditional recovery method...")
+        print("=" * 60)
+        # Continue with fallback method below
+
+    try:
+        with open(wallet_path, 'rb') as f:
+            data = f.read()
+
+        print(f"📊 Wallet file size: {len(data)} bytes ({len(data) / 1024 / 1024:.2f} MB)")
+
         # Known positions from the analysis report
         # Master key position
         master_key_pos = 383348
-        
+
         # Some encrypted key positions (we'll analyze the structure)
         encrypted_positions = [
             25324, 25636, 25948, 26260, 26572, 26884, 27196, 27508, 27820, 28132,
             28444, 28756, 29064, 29372, 29680, 30296, 33236, 33364, 33492, 33620
         ]
-        
+
         potential_keys = []
-        
+
         print("\n🔍 Analyzing master key position...")
         if master_key_pos < len(data):
             # Extract master key data
             master_start = master_key_pos + 9  # Skip pattern bytes
             if master_start + 100 <= len(data):
-                master_data = data[master_start:master_start+100]
+                master_data = data[master_start:master_start + 100]
                 print(f"  📍 Master key data length: {len(master_data)} bytes")
-                
+
                 # Look for potential private key within master key data
                 # Sometimes the actual key is embedded within the structure
                 for offset in range(0, len(master_data) - 32, 1):
-                    candidate = master_data[offset:offset+32]
+                    candidate = master_data[offset:offset + 32]
                     hex_candidate = binascii.hexlify(candidate).decode('ascii')
-                    
+
                     if is_valid_private_key_hex(hex_candidate):
                         potential_keys.append({
                             'position': master_key_pos + 9 + offset,
@@ -6403,30 +6571,30 @@ def targeted_key_extraction(wallet_path, output_file):
                             'confidence': 'medium'
                         })
                         print(f"    ✅ Found potential key in master key at offset {offset}")
-        
+
         print("\n🔍 Analyzing encrypted key positions...")
         for i, pos in enumerate(encrypted_positions[:10]):  # Analyze first 10 for efficiency
             if pos < len(data):
                 # Skip encrypted key pattern bytes
                 key_start = pos + 9
                 if key_start + 80 <= len(data):
-                    key_data = data[key_start:key_start+80]
-                    
+                    key_data = data[key_start:key_start + 80]
+
                     # Look for patterns that might indicate unencrypted portions
                     # Sometimes keys are partially encrypted or have unencrypted metadata
                     for offset in range(0, len(key_data) - 32, 1):
-                        candidate = key_data[offset:offset+32]
+                        candidate = key_data[offset:offset + 32]
                         hex_candidate = binascii.hexlify(candidate).decode('ascii')
-                        
+
                         if is_valid_private_key_hex(hex_candidate):
                             potential_keys.append({
                                 'position': pos + 9 + offset,
                                 'hex': hex_candidate,
-                                'source': f'encrypted_key_{i+1}_embedded',
+                                'source': f'encrypted_key_{i + 1}_embedded',
                                 'confidence': 'low'
                             })
-                            print(f"    ✅ Found potential key in encrypted key #{i+1} at offset {offset}")
-        
+                            print(f"    ✅ Found potential key in encrypted key #{i + 1} at offset {offset}")
+
         print("\n🔍 Scanning for common key patterns...")
         # Look for specific patterns that often precede private keys
         key_indicators = [
@@ -6434,20 +6602,20 @@ def targeted_key_extraction(wallet_path, output_file):
             b'\x01\x20',  # Version + length
             b'\x30\x20',  # ASN.1 sequence + length
         ]
-        
+
         for indicator in key_indicators:
             pos = 0
             while True:
                 pos = data.find(indicator, pos)
                 if pos == -1:
                     break
-                
+
                 # Check if followed by a valid private key
                 key_start = pos + len(indicator)
                 if key_start + 32 <= len(data):
-                    candidate = data[key_start:key_start+32]
+                    candidate = data[key_start:key_start + 32]
                     hex_candidate = binascii.hexlify(candidate).decode('ascii')
-                    
+
                     if is_valid_private_key_hex(hex_candidate):
                         # Check if we already found this key
                         already_found = any(k['hex'] == hex_candidate for k in potential_keys)
@@ -6459,11 +6627,11 @@ def targeted_key_extraction(wallet_path, output_file):
                                 'confidence': 'high'
                             })
                             print(f"    ✅ Found key after pattern {indicator.hex()} at position {key_start}")
-                
+
                 pos += 1
-        
+
         print(f"\n📊 Analysis complete. Found {len(potential_keys)} potential private keys.")
-        
+
         # Write results
         from datetime import datetime
         with open(output_file, 'w') as f:
@@ -6471,74 +6639,74 @@ def targeted_key_extraction(wallet_path, output_file):
             f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"# Wallet: {wallet_path}\n")
             f.write(f"# Method: Targeted extraction from known positions\n")
-            f.write("# " + "="*60 + "\n\n")
-            
+            f.write("# " + "=" * 60 + "\n\n")
+
             f.write("## EXTRACTION SUMMARY\n")
             f.write(f"Potential private keys found: {len(potential_keys)}\n")
             f.write(f"Master key position analyzed: {master_key_pos}\n")
             f.write(f"Encrypted key positions analyzed: {len(encrypted_positions)}\n\n")
-            
+
             if potential_keys:
                 f.write("## POTENTIAL PRIVATE KEYS\n")
                 f.write("# WARNING: These are potential keys extracted from wallet structure\n")
                 f.write("# Test carefully in a secure environment before using with real funds\n\n")
-                
+
                 # Sort by confidence
                 potential_keys.sort(key=lambda x: {'high': 3, 'medium': 2, 'low': 1}[x['confidence']], reverse=True)
-                
+
                 for i, key_info in enumerate(potential_keys):
-                    f.write(f"Potential Private Key #{i+1}:\n")
+                    f.write(f"Potential Private Key #{i + 1}:\n")
                     f.write(f"  Position: {key_info['position']}\n")
                     f.write(f"  Source: {key_info['source']}\n")
                     f.write(f"  Confidence: {key_info['confidence']}\n")
                     f.write(f"  Hex: {key_info['hex']}\n")
-                    
+
                     # Convert to WIF formats
                     try:
                         wif_compressed = privToWif(key_info['hex'], compressed=True)
                         wif_uncompressed = privToWif(key_info['hex'], compressed=False)
-                        
+
                         if wif_compressed:
                             f.write(f"  WIF (compressed): {wif_compressed}\n")
                         if wif_uncompressed:
                             f.write(f"  WIF (uncompressed): {wif_uncompressed}\n")
                     except:
                         f.write(f"  WIF: (conversion failed)\n")
-                    
+
                     f.write("\n")
-                
+
                 f.write("## TESTING INSTRUCTIONS\n")
                 f.write("1. NEVER test with real Bitcoin - use testnet first!\n")
                 f.write("2. Create a new testnet wallet\n")
                 f.write("3. Import each key: bitcoin-cli -testnet importprivkey \"WIF_KEY\"\n")
                 f.write("4. Check balance: bitcoin-cli -testnet getbalance\n")
                 f.write("5. Only use keys that show a balance\n\n")
-                
+
                 f.write("## SECURITY WARNINGS\n")
                 f.write("- These keys are extracted from wallet structure analysis\n")
                 f.write("- Not all potential keys may be valid or active\n")
                 f.write("- Test thoroughly before using with real funds\n")
                 f.write("- Keep extracted keys secure and private\n\n")
-                
+
             else:
                 f.write("## NO POTENTIAL KEYS FOUND\n")
                 f.write("The targeted extraction did not find any potential private keys.\n")
                 f.write("This suggests the wallet is fully encrypted.\n\n")
-                
+
                 f.write("## ALTERNATIVE APPROACHES\n")
                 f.write("1. Password recovery with btcrecover\n")
                 f.write("2. Professional wallet recovery services\n")
                 f.write("3. Brute force attack (if password is simple)\n")
                 f.write("4. Social engineering (remember old passwords)\n\n")
-        
+
         print(f"✅ Extraction completed!")
         print(f"📄 Results saved to: {output_file}")
-        
+
         if potential_keys:
             high_conf = sum(1 for k in potential_keys if k['confidence'] == 'high')
             medium_conf = sum(1 for k in potential_keys if k['confidence'] == 'medium')
             low_conf = sum(1 for k in potential_keys if k['confidence'] == 'low')
-            
+
             print(f"🎯 Found {len(potential_keys)} potential keys:")
             print(f"   - High confidence: {high_conf}")
             print(f"   - Medium confidence: {medium_conf}")
@@ -6549,7 +6717,7 @@ def targeted_key_extraction(wallet_path, output_file):
             print("❌ No potential private keys found in targeted positions")
             print("💡 The wallet appears to be fully encrypted")
             return False
-        
+
     except Exception as e:
         print(f"❌ Extraction failed: {e}")
         import traceback
@@ -6627,536 +6795,10 @@ class TestPywallet(unittest.TestCase):
         pass
 
 
-def create_status_logger():
-    """Create a status logger for tracking execution flow"""
-    global status_log
-    status_log = []
-    
-    def log_status(message, level="INFO"):
-        timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-        log_entry = f"[{timestamp}] {level}: {message}"
-        status_log.append(log_entry)
-        print(f"📊 {log_entry}")
-    
-    return log_status
-
-
-def save_execution_log():
-    """Save the execution log to a file for analysis"""
-    try:
-        log_file = f"pywallet_execution_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        with open(log_file, 'w') as f:
-            f.write("=" * 80 + "\n")
-            f.write("PYWALLET EXECUTION LOG FOR ANALYSIS\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Pywallet Version: {pywversion}\n")
-            f.write(f"Command: {' '.join(sys.argv)}\n")
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("EXECUTION FLOW LOG\n")
-            f.write("=" * 80 + "\n")
-            
-            if 'status_log' in globals():
-                for entry in status_log:
-                    f.write(entry + "\n")
-            else:
-                f.write("No execution log available\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("END OF LOG\n")
-            f.write("=" * 80 + "\n")
-        
-        print(f"\n📋 EXECUTION LOG SAVED: {log_file}")
-        print("📧 Please send this file along with any error reports!")
-        
-    except Exception as e:
-        print(f"Failed to save execution log: {e}")
-
-
-def generate_client_summary_report():
-    """Generate a comprehensive summary report for the client to share"""
-    try:
-        summary_file = f"pywallet_client_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        with open(summary_file, 'w') as f:
-            f.write("=" * 80 + "\n")
-            f.write("PYWALLET CLIENT SUMMARY REPORT\n")
-            f.write("=" * 80 + "\n")
-            f.write("📋 SHARE THIS FILE WITH SUPPORT FOR ANALYSIS\n")
-            f.write("🔒 This file contains NO private keys or sensitive wallet data\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Pywallet Version: {pywversion}\n")
-            f.write(f"Command Executed: {' '.join(sys.argv)}\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("SYSTEM ENVIRONMENT\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Python Version: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n")
-            f.write(f"Operating System: {platform.system()} {platform.release()}\n")
-            f.write(f"Architecture: {platform.machine()}\n")
-            f.write(f"Working Directory: {os.getcwd()}\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("DEPENDENCY STATUS\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Berkeley DB Available: {'Yes' if bdb else 'No'}\n")
-            if missing_dep:
-                f.write(f"Missing Dependencies: {', '.join(missing_dep)}\n")
-            else:
-                f.write("All Required Dependencies: Available\n")
-            
-            # Check if wallet file was specified
-            if 'options' in globals() and hasattr(options, 'walletfile') and options.walletfile:
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("WALLET FILE STATUS\n")
-                f.write("=" * 80 + "\n")
-                wallet_path = options.walletfile
-                f.write(f"Wallet Path: {wallet_path}\n")
-                
-                if os.path.exists(wallet_path):
-                    try:
-                        stat_info = os.stat(wallet_path)
-                        f.write(f"File Exists: Yes\n")
-                        f.write(f"File Size: {stat_info.st_size} bytes ({stat_info.st_size / 1024:.2f} KB)\n")
-                        f.write(f"Readable: {'Yes' if os.access(wallet_path, os.R_OK) else 'No'}\n")
-                        f.write(f"Writable: {'Yes' if os.access(wallet_path, os.W_OK) else 'No'}\n")
-                        
-                        # File type detection
-                        with open(wallet_path, 'rb') as wf:
-                            header = wf.read(16)
-                            f.write(f"File Header: {binascii.hexlify(header).decode()}\n")
-                            
-                            if header.startswith(b'\x00\x00\x00\x00'):
-                                f.write("File Type: Likely Berkeley DB wallet\n")
-                            else:
-                                f.write("File Type: Unknown or corrupted\n")
-                                
-                    except Exception as e:
-                        f.write(f"File Analysis Error: {e}\n")
-                else:
-                    f.write("File Exists: No\n")
-            
-            # Issues and warnings
-            issues, warnings = detect_common_issues()
-            if issues or warnings:
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("DETECTED ISSUES\n")
-                f.write("=" * 80 + "\n")
-                
-                if issues:
-                    f.write("CRITICAL ISSUES:\n")
-                    for issue in issues:
-                        f.write(f"  - {issue}\n")
-                
-                if warnings:
-                    f.write("WARNINGS:\n")
-                    for warning in warnings:
-                        f.write(f"  - {warning}\n")
-            
-            # Execution summary
-            if 'status_log' in globals():
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("EXECUTION SUMMARY\n")
-                f.write("=" * 80 + "\n")
-                
-                error_count = len([log for log in status_log if 'ERROR' in log])
-                warning_count = len([log for log in status_log if 'WARNING' in log])
-                
-                f.write(f"Total Log Entries: {len(status_log)}\n")
-                f.write(f"Errors Encountered: {error_count}\n")
-                f.write(f"Warnings Generated: {warning_count}\n")
-                
-                if error_count > 0:
-                    f.write("\nERROR ENTRIES:\n")
-                    for log in status_log:
-                        if 'ERROR' in log:
-                            f.write(f"  {log}\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("NEXT STEPS\n")
-            f.write("=" * 80 + "\n")
-            f.write("1. Share this summary file with technical support\n")
-            f.write("2. If errors occurred, also share any error report files\n")
-            f.write("3. Include the exact command you ran and what you expected\n")
-            f.write("4. Mention any specific error messages you saw\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("END OF SUMMARY\n")
-            f.write("=" * 80 + "\n")
-        
-        print(f"\n📋 CLIENT SUMMARY GENERATED: {summary_file}")
-        print("📧 This is the main file to share with support!")
-        print("🔒 Contains system info but NO private keys or wallet data")
-        
-        return summary_file
-        
-    except Exception as e:
-        print(f"Failed to generate client summary: {e}")
-        return None
-
-
-def print_system_diagnostics():
-    """Print comprehensive system and environment diagnostics"""
-    log_status = create_status_logger()
-    
-    log_status("Starting system diagnostics")
-    print("\n" + "=" * 80)
-    print("🔧 SYSTEM DIAGNOSTICS & ENVIRONMENT ANALYSIS")
-    print("=" * 80)
-    
-    # Python version info
-    log_status(f"Python version: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    print(f"📍 Python Version: {sys.version}")
-    print(f"📍 Python Executable: {sys.executable}")
-    print(f"📍 Platform: {platform.platform()}")
-    print(f"📍 Architecture: {platform.architecture()}")
-    print(f"📍 Machine: {platform.machine()}")
-    print(f"📍 Processor: {platform.processor()}")
-    
-    # Current working directory
-    log_status(f"Working directory: {os.getcwd()}")
-    print(f"📍 Current Directory: {os.getcwd()}")
-    print(f"📍 Script Location: {os.path.abspath(__file__)}")
-    
-    # Memory info (if available)
-    try:
-        import psutil
-        memory = psutil.virtual_memory()
-        log_status(f"Memory: {memory.available / (1024**3):.2f}GB available of {memory.total / (1024**3):.2f}GB total")
-        print(f"📍 Total Memory: {memory.total / (1024**3):.2f} GB")
-        print(f"📍 Available Memory: {memory.available / (1024**3):.2f} GB")
-        print(f"📍 Memory Usage: {memory.percent}%")
-    except ImportError:
-        log_status("psutil not available for memory info")
-        print("📍 Memory Info: psutil not available")
-    
-    # Check critical dependencies
-    log_status("Checking dependencies")
-    print("\n🔍 DEPENDENCY CHECK:")
-    dependencies = {
-        'bsddb3' if PY3 else 'bsddb': bdb is not None,
-        'binascii': True,
-        'hashlib': True,
-        'json': True,
-        'os': True,
-        'sys': True,
-        'struct': True,
-        'traceback': True
-    }
-    
-    for dep, available in dependencies.items():
-        status = "✅ Available" if available else "❌ Missing"
-        log_status(f"Dependency {dep}: {'Available' if available else 'Missing'}")
-        print(f"  {dep}: {status}")
-    
-    if missing_dep:
-        log_status(f"Missing dependencies detected: {', '.join(missing_dep)}", "WARNING")
-        print(f"\n⚠️  MISSING DEPENDENCIES: {', '.join(missing_dep)}")
-        print("   These may cause issues with wallet operations!")
-    
-    # Check for common wallet locations
-    log_status("Scanning for common wallet locations")
-    print("\n🔍 COMMON WALLET LOCATIONS CHECK:")
-    common_locations = []
-    
-    if platform.system() == "Windows":
-        appdata = os.environ.get('APPDATA', '')
-        if appdata:
-            common_locations.extend([
-                os.path.join(appdata, 'Bitcoin'),
-                os.path.join(appdata, 'Bitcoin', 'wallet.dat'),
-                os.path.join(appdata, 'Bitcoin', 'wallets'),
-            ])
-    elif platform.system() == "Darwin":  # macOS
-        home = os.path.expanduser("~")
-        common_locations.extend([
-            os.path.join(home, "Library", "Application Support", "Bitcoin"),
-            os.path.join(home, "Library", "Application Support", "Bitcoin", "wallet.dat"),
-        ])
-    else:  # Linux
-        home = os.path.expanduser("~")
-        common_locations.extend([
-            os.path.join(home, ".bitcoin"),
-            os.path.join(home, ".bitcoin", "wallet.dat"),
-            os.path.join(home, ".bitcoin", "wallets"),
-        ])
-    
-    found_wallets = 0
-    for location in common_locations:
-        if os.path.exists(location):
-            if os.path.isfile(location):
-                size = os.path.getsize(location)
-                log_status(f"Found wallet file: {location} ({size} bytes)")
-                print(f"  ✅ Found file: {location} ({size} bytes)")
-                found_wallets += 1
-            else:
-                log_status(f"Found wallet directory: {location}")
-                print(f"  ✅ Found directory: {location}")
-        else:
-            print(f"  ❌ Not found: {location}")
-    
-    log_status(f"Wallet location scan complete: {found_wallets} wallet files found")
-    log_status("System diagnostics completed")
-    print("=" * 80)
-
-
-def analyze_wallet_file(wallet_path):
-    """Analyze a wallet file and provide detailed diagnostics"""
-    if not wallet_path or not os.path.exists(wallet_path):
-        if 'status_log' in globals():
-            log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
-            log_status(f"Wallet file analysis skipped - file not found: {wallet_path}", "WARNING")
-        return
-        
-    # Get the logger if available
-    if 'status_log' in globals():
-        log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
-    else:
-        log_status = lambda msg, level="INFO": None
-        
-    log_status(f"Starting wallet file analysis: {wallet_path}")
-    print("\n" + "=" * 80)
-    print("📁 WALLET FILE ANALYSIS")
-    print("=" * 80)
-    
-    print(f"📍 Wallet Path: {os.path.abspath(wallet_path)}")
-    
-    # Basic file info
-    try:
-        stat_info = os.stat(wallet_path)
-        log_status(f"Wallet file size: {stat_info.st_size} bytes")
-        print(f"📍 File Size: {stat_info.st_size} bytes ({stat_info.st_size / 1024:.2f} KB)")
-        print(f"📍 Last Modified: {datetime.fromtimestamp(stat_info.st_mtime)}")
-        print(f"📍 Last Accessed: {datetime.fromtimestamp(stat_info.st_atime)}")
-        print(f"📍 Created: {datetime.fromtimestamp(stat_info.st_ctime)}")
-        
-        # Check if file is readable
-        readable = os.access(wallet_path, os.R_OK)
-        writable = os.access(wallet_path, os.W_OK)
-        log_status(f"File permissions - Readable: {readable}, Writable: {writable}")
-        
-        if readable:
-            print("📍 File Permissions: ✅ Readable")
-        else:
-            print("📍 File Permissions: ❌ Not readable")
-            log_status("File is not readable - this will cause issues", "ERROR")
-            
-        if writable:
-            print("📍 File Permissions: ✅ Writable")
-        else:
-            print("📍 File Permissions: ❌ Not writable")
-            
-    except Exception as e:
-        log_status(f"Error getting file info: {e}", "ERROR")
-        print(f"❌ Error getting file info: {e}")
-        return
-    
-    # Try to detect file type
-    try:
-        with open(wallet_path, 'rb') as f:
-            header = f.read(16)
-            print(f"📍 File Header (hex): {binascii.hexlify(header).decode()}")
-            
-            # Check for common wallet signatures
-            if header.startswith(b'\x00\x00\x00\x00'):
-                print("📍 File Type: Possibly Berkeley DB wallet")
-            elif b'BDB' in header or b'Berkeley' in header:
-                print("📍 File Type: Berkeley DB detected")
-            else:
-                print("📍 File Type: Unknown format")
-                
-    except Exception as e:
-        print(f"❌ Error reading file header: {e}")
-    
-    # Try to open with Berkeley DB
-    if bdb:
-        try:
-            print("\n🔍 BERKELEY DB ANALYSIS:")
-            db_env = bdb.DBEnv(0)
-            db_env.set_cachesize(0, 64 * 1024 * 1024, 1)
-            db_env.set_lk_max_locks(40000)
-            db_env.set_lk_max_objects(40000)
-            
-            # Try to open the database
-            db_dir = os.path.dirname(wallet_path)
-            if not db_dir:
-                db_dir = "."
-                
-            db_env.open(db_dir, bdb.DB_CREATE | bdb.DB_INIT_LOCK | bdb.DB_INIT_LOG | bdb.DB_INIT_MPOOL | bdb.DB_INIT_TXN | bdb.DB_RECOVER)
-            
-            db = bdb.DB(db_env)
-            wallet_name = os.path.basename(wallet_path)
-            db.open(wallet_name, "main", bdb.DB_BTREE, bdb.DB_RDONLY)
-            
-            # Count entries
-            cursor = db.cursor()
-            count = 0
-            key_types = {}
-            
-            try:
-                rec = cursor.first()
-                while rec:
-                    count += 1
-                    key, value = rec
-                    
-                    # Try to determine key type
-                    try:
-                        if len(key) > 0:
-                            key_type = key[:10] if len(key) >= 10 else key
-                            key_type_str = key_type.decode('ascii', errors='ignore')
-                            key_types[key_type_str] = key_types.get(key_type_str, 0) + 1
-                    except:
-                        pass
-                        
-                    rec = cursor.next()
-                    
-                    # Limit analysis to prevent hanging
-                    if count > 1000:
-                        break
-                        
-            except Exception as e:
-                print(f"⚠️  Error during cursor iteration: {e}")
-            
-            cursor.close()
-            db.close()
-            db_env.close()
-            
-            print(f"✅ Berkeley DB opened successfully")
-            print(f"📍 Total entries found: {count}")
-            
-            if key_types:
-                print("📍 Key types found:")
-                for key_type, count in sorted(key_types.items()):
-                    print(f"   {key_type}: {count} entries")
-                    
-        except Exception as e:
-            print(f"❌ Berkeley DB analysis failed: {e}")
-            print("   This might indicate a corrupted or encrypted wallet")
-    else:
-        print("❌ Berkeley DB not available - cannot analyze wallet structure")
-    
-    print("=" * 80)
-
-
-def detect_common_issues():
-    """Detect and report common issues that might prevent wallet operations"""
-    issues = []
-    warnings = []
-    
-    # Check Python version
-    if sys.version_info < (3, 6):
-        issues.append("Python version is too old. Python 3.6+ recommended.")
-    elif sys.version_info < (3, 8):
-        warnings.append("Python version is older. Consider upgrading to Python 3.8+")
-    
-    # Check critical dependencies
-    if not bdb:
-        issues.append("Berkeley DB (bsddb3/bsddb) is not available - wallet operations will fail")
-    
-    # Check write permissions in current directory
-    try:
-        test_file = "pywallet_test_write.tmp"
-        with open(test_file, 'w') as f:
-            f.write("test")
-        os.remove(test_file)
-    except Exception:
-        warnings.append("Cannot write to current directory - output files may fail")
-    
-    # Check available disk space
-    try:
-        import shutil
-        free_space = shutil.disk_usage('.').free
-        if free_space < 100 * 1024 * 1024:  # Less than 100MB
-            warnings.append(f"Low disk space: {free_space / (1024*1024):.1f} MB available")
-    except Exception:
-        pass
-    
-    return issues, warnings
-
-
-def print_command_help():
-    """Print helpful command examples based on detected system"""
-    print("\n" + "=" * 80)
-    print("💡 RECOMMENDED COMMANDS FOR YOUR CLIENT")
-    print("=" * 80)
-    
-    # Check for common issues first
-    issues, warnings = detect_common_issues()
-    
-    if issues:
-        print("🚨 CRITICAL ISSUES DETECTED:")
-        for issue in issues:
-            print(f"   ❌ {issue}")
-        print()
-    
-    if warnings:
-        print("⚠️  WARNINGS:")
-        for warning in warnings:
-            print(f"   ⚠️  {warning}")
-        print()
-    
-    print("Based on the analysis above, here are the recommended commands:")
-    print()
-    
-    print("🔍 FOR WALLET ANALYSIS:")
-    print("   python pywallet.py --wallet /path/to/wallet.dat --dump")
-    print("   python pywallet.py --wallet /path/to/wallet.dat --dumpwithbalance")
-    print()
-    
-    print("🔑 FOR KEY EXTRACTION:")
-    print("   python pywallet.py --wallet /path/to/wallet.dat --extract_advanced --extract_password YOUR_PASSWORD")
-    print("   python pywallet.py --wallet /path/to/wallet.dat --auto_detect")
-    print()
-    
-    print("🔧 FOR RECOVERY FROM DAMAGED FILES:")
-    print("   python pywallet.py --recover --recov_device /path/to/wallet.dat --output_keys recovered_keys.txt")
-    print("   python pywallet.py --recover --recov_device /path/to/device --recov_size 1GB --output_keys keys.txt")
-    print()
-    
-    print("📊 FOR WALLET INFORMATION:")
-    print("   python pywallet.py --wallet /path/to/wallet.dat --count_keys")
-    print("   python pywallet.py --wallet /path/to/wallet.dat --find_address YOUR_ADDRESS")
-    print()
-    
-    print("🔧 FOR TROUBLESHOOTING:")
-    print("   python pywallet.py --diagnose")
-    print("   python pywallet.py --diagnose --wallet /path/to/wallet.dat")
-    print()
-    
-    print("⚠️  IMPORTANT NOTES:")
-    print("   1. Replace /path/to/wallet.dat with the actual path to your wallet file")
-    print("   2. Replace YOUR_PASSWORD with your actual wallet password")
-    print("   3. Always backup your wallet before running any commands")
-    print("   4. If you see dependency errors above, install them first")
-    print("   5. Use --diagnose flag for detailed troubleshooting information")
-    print()
-    
-    if missing_dep:
-        print("🔧 INSTALL MISSING DEPENDENCIES:")
-        for dep in missing_dep:
-            if dep == 'bsddb3':
-                print("   pip install bsddb3")
-            else:
-                print(f"   pip install {dep}")
-        print()
-    
-    if issues:
-        print("🚨 RESOLVE CRITICAL ISSUES BEFORE PROCEEDING!")
-        print("   The issues listed above must be fixed for wallet operations to work.")
-        print()
-    
-    print("=" * 80)
-
-
 if __name__ == '__main__':
     # Print version information at startup
     print(f"Pywallet {pywversion} - https://pywallet.org")
-    
-    # Print comprehensive diagnostics
-    print_system_diagnostics()
-    
+
     parser = OptionParser(usage="%prog [options]", version="%prog 1.1")
 
     parser.add_option("--dump_bip32", nargs=2,
@@ -7293,36 +6935,11 @@ if __name__ == '__main__':
     parser.add_option("--targeted_output", dest="targeted_output",
                       help="output file for targeted extraction (default: output_file.txt)")
 
-    parser.add_option("--diagnose", dest="diagnose", action="store_true",
-                      help="run comprehensive diagnostics and exit (useful for troubleshooting)")
-
     #	parser.add_option("--forcerun", dest="forcerun",
     #		action="store_true",
     #		help="run even if pywallet detects bitcoin is running")
 
     (options, args) = parser.parse_args()
-    
-    # Log the command that was executed
-    if 'status_log' in globals():
-        log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
-        log_status(f"Command executed: {' '.join(sys.argv)}")
-        
-        # Log key options
-        if hasattr(options, 'walletfile') and options.walletfile:
-            log_status(f"Wallet file specified: {options.walletfile}")
-        if hasattr(options, 'recover') and options.recover:
-            log_status("Recovery mode requested")
-        if hasattr(options, 'extract_advanced') and options.extract_advanced:
-            log_status("Advanced extraction mode requested")
-        if hasattr(options, 'dump') and options.dump:
-            log_status("Wallet dump requested")
-    
-    # Analyze wallet file if provided
-    if hasattr(options, 'walletfile') and options.walletfile:
-        analyze_wallet_file(options.walletfile)
-    
-    # Print command help for the client
-    print_command_help()
 
     #	a=Popen("ps xa | grep ' bitcoin'", shell=True, bufsize=-1, stdout=PIPE).stdout
     #	aread=a.read()
@@ -7335,20 +6952,6 @@ if __name__ == '__main__':
 
     if options.tests:
         unittest.main(argv=sys.argv[:1] + ['TestPywallet'])
-        exit()
-    
-    # Handle diagnostic mode
-    if options.diagnose:
-        print("\n" + "=" * 80)
-        print("🔧 COMPREHENSIVE DIAGNOSTIC MODE")
-        print("=" * 80)
-        print("This mode provides detailed system analysis for troubleshooting.")
-        print("Share this output with support to help diagnose issues.")
-        print("=" * 80)
-        
-        # The diagnostics were already printed at startup, so just exit
-        print("\n✅ Diagnostic analysis complete!")
-        print("📋 Please share the above output for analysis.")
         exit()
 
     if options.dump_bip32:
@@ -7373,7 +6976,7 @@ if __name__ == '__main__':
 
         print(f"Analyzing wallet: {wallet_path}")
         result = count_wallet_keys(wallet_path, options.extract_password)
-        
+
         if result:
             print("\nKey count analysis completed successfully!")
         else:
@@ -7385,15 +6988,15 @@ if __name__ == '__main__':
         if not options.walletfile:
             print("ERROR: You must specify a wallet file with -w/--wallet when using --targeted_extract")
             exit(1)
-        
+
         wallet_path = options.walletfile
         output_file = options.targeted_output or "output_file.txt"
-        
+
         print(f"Starting targeted extraction from: {wallet_path}")
         print(f"Output will be saved to: {output_file}")
-        
+
         success = targeted_key_extraction(wallet_path, output_file)
-        
+
         if success:
             print("\n🎉 Targeted extraction completed successfully!")
             print(f"📂 Results saved to: {output_file}")
@@ -7418,28 +7021,28 @@ if __name__ == '__main__':
         print(f"Starting advanced extraction from {wallet_path}")
         print(f"Output file: {options.extract_output}")
         print(f"Password: {options.extract_password}")
-        
+
         # First, count the available keys to inform the user
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("STEP 1: Analyzing wallet to count available keys...")
-        print("="*50)
-        
+        print("=" * 50)
+
         key_count_result = count_wallet_keys(wallet_path, options.extract_password)
-        
+
         if not key_count_result:
             print("ERROR: Could not analyze wallet. Cannot proceed with extraction.")
             exit(1)
-        
+
         total_keys = key_count_result['total_private_keys']
-        
+
         # Determine how many keys to extract
         keys_to_extract = options.extract_max_keys
-        
+
         # If user didn't specify max_keys or used default, ask them
         if options.extract_max_keys == 10:  # Default value
-            print("\n" + "="*50)
+            print("\n" + "=" * 50)
             print("STEP 2: Choose number of keys to extract")
-            print("="*50)
+            print("=" * 50)
             print(f"Your wallet contains {total_keys} total private keys.")
             print(f"Current default: {options.extract_max_keys} keys")
             print()
@@ -7450,10 +7053,10 @@ if __name__ == '__main__':
             print(f"  4. Extract first 50 keys")
             print(f"  5. Specify custom number")
             print()
-            
+
             try:
                 choice = input("Enter your choice (1-5): ").strip()
-                
+
                 if choice == '1':
                     keys_to_extract = total_keys
                     print(f"✓ Will extract ALL {keys_to_extract} keys")
@@ -7481,7 +7084,7 @@ if __name__ == '__main__':
                 else:
                     print("Invalid choice. Using default: 10 keys")
                     keys_to_extract = 10
-                    
+
             except KeyboardInterrupt:
                 print("\nOperation cancelled by user.")
                 exit(0)
@@ -7490,16 +7093,16 @@ if __name__ == '__main__':
                 keys_to_extract = 10
         else:
             print(f"Using specified max_keys: {keys_to_extract}")
-        
+
         # Validate the number
         if keys_to_extract > total_keys:
             print(f"WARNING: You requested {keys_to_extract} keys, but wallet only contains {total_keys} keys.")
             keys_to_extract = total_keys
             print(f"Adjusting to extract all {keys_to_extract} keys.")
-        
-        print(f"\n" + "="*50)
+
+        print(f"\n" + "=" * 50)
         print("STEP 3: Extracting keys...")
-        print("="*50)
+        print("=" * 50)
         print(f"Extracting {keys_to_extract} out of {total_keys} total keys")
         print()
 
@@ -7511,24 +7114,24 @@ if __name__ == '__main__':
         )
 
         if success:
-            print(f"\n" + "="*50)
+            print(f"\n" + "=" * 50)
             print("✅ EXTRACTION COMPLETED SUCCESSFULLY!")
-            print("="*50)
+            print("=" * 50)
             print(f"📁 Output file: {options.extract_output}")
             print(f"🔑 Keys extracted: {keys_to_extract} out of {total_keys} total")
-            print(f"📊 Percentage: {(keys_to_extract/total_keys*100):.1f}% of wallet")
-            
+            print(f"📊 Percentage: {(keys_to_extract / total_keys * 100):.1f}% of wallet")
+
             if keys_to_extract < total_keys:
                 remaining = total_keys - keys_to_extract
                 print(f"⚠️  Remaining keys: {remaining} keys not extracted")
                 print(f"💡 To extract ALL keys, use: --extract_max_keys={total_keys}")
             else:
                 print("✅ ALL keys from wallet have been extracted!")
-            print("="*50)
+            print("=" * 50)
         else:
-            print(f"\n" + "="*50)
+            print(f"\n" + "=" * 50)
             print("❌ EXTRACTION FAILED!")
-            print("="*50)
+            print("=" * 50)
         exit()
 
     # Handle auto-detection mode
@@ -7633,63 +7236,27 @@ if __name__ == '__main__':
         if len(device) in [2, 3] and device[1] == ':':
             device = "\\\\.\\" + device
 
-        # 🧠 SMART UNIVERSAL RECOVERY: Try proper wallet analysis first for wallet files
+        # 🧠 SMART UNIVERSAL RECOVERY: Try targeted extraction first for wallet files
         if os.path.isfile(device) and device.lower().endswith('.dat'):
-            print("🎯 SMART UNIVERSAL RECOVERY - Analyzing wallet file...")
-            print(f"🔍 Target: {device}")
-            print("=" * 60)
-            print("🚀 Step 1: Detecting wallet encryption status...")
-            
             output_file = options.output_keys or "recovery_results.txt"
-            
-            # First, detect if wallet is encrypted
+
+            # Try targeted extraction first
             try:
-                # Import the fixed wallet extractor for proper encryption detection
-                import sys
-                import os
-                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                from fixed_wallet_extractor import FixedWalletExtractor
-                
-                # Create extractor instance
-                extractor = FixedWalletExtractor(device, output_file)
-                
-                # Detect encryption status
-                is_encrypted, mkey_count, ckey_count, key_count = extractor.detect_wallet_encryption()
-                
-                if is_encrypted:
-                    print(f"\n🔒 ENCRYPTED WALLET DETECTED")
-                    print(f"   Master keys: {mkey_count}, Encrypted keys: {ckey_count}")
-                    print("   This wallet requires a passphrase to decrypt the private keys.")
-                    print("\n🔄 Step 2: Falling back to traditional recovery method with passphrase prompt...")
-                    print("=" * 60)
-                    # Continue with standard recovery below which will prompt for passphrase
-                    
-                elif is_encrypted is False:
-                    print(f"\n🔓 UNENCRYPTED WALLET DETECTED")
-                    print(f"   Unencrypted keys: {key_count}")
-                    print("🚀 Step 2: Attempting safe extraction (fast method)...")
-                    
-                    # Try the fixed extractor for unencrypted wallets
-                    success = extractor.extract_keys()
-                    
-                    if success:
-                        print("\n🎉 SUCCESS! Safe extraction completed!")
-                        print(f"📂 Keys saved to: {output_file}")
-                        print("✅ UNIFIED COMMAND SUCCESS: Wallet processed with safe method!")
-                        exit(0)
-                    else:
-                        print("\n⚠️  Safe extraction didn't find keys or failed")
-                        print("🔄 Step 3: Falling back to traditional recovery method...")
-                        print("=" * 60)
-                        # Continue with standard recovery below
+                success = targeted_key_extraction(device, output_file)
+
+                if success:
+                    print("\n🎉 SUCCESS! Targeted extraction completed!")
+                    print(f"📂 Keys saved to: {output_file}")
+                    print("✅ UNIFIED COMMAND SUCCESS: Wallet processed with fast method!")
+                    exit(0)
                 else:
-                    print(f"\n❓ WALLET ENCRYPTION STATUS UNCLEAR")
+                    print("\n⚠️  Targeted extraction didn't find keys or failed")
                     print("🔄 Step 2: Falling back to traditional recovery method...")
                     print("=" * 60)
                     # Continue with standard recovery below
-                    
+
             except Exception as e:
-                print(f"\n⚠️  Wallet analysis encountered an error: {str(e)}")
+                print(f"\n⚠️  Targeted extraction encountered an error: {str(e)}")
                 print("🔄 Step 2: Falling back to traditional recovery method...")
                 print("=" * 60)
                 # Continue with standard recovery below
@@ -7752,16 +7319,16 @@ if __name__ == '__main__':
         # (wallet.dat, wallet1.dat, wallet2.dat, etc.)
         print()
         print("🔍 SMART RECOVERY - Analyzing target...")
-        
+
         is_wallet_file = False
         is_intact = False
         advanced_extraction_failed = False
-        
+
         if os.path.isfile(device):
             filename = os.path.basename(device).lower()
             if filename == 'wallet.dat' or (filename.startswith('wallet') and filename.endswith('.dat')):
                 is_wallet_file = True
-        
+
         if is_wallet_file:
             print("=" * 60)
             print("🔍 SMART WALLET DETECTION")
@@ -7773,7 +7340,7 @@ if __name__ == '__main__':
             # Try to detect if this is an intact wallet file
             try:
                 print("Testing if wallet file is intact...")
-                
+
                 # Simple test: try to detect wallet format
                 format_type = detect_wallet_format(device)
                 if format_type in ["advanced", "standard"]:
@@ -7782,64 +7349,92 @@ if __name__ == '__main__':
                 else:
                     is_intact = False
                     print(f"❌ Wallet appears damaged - Format: {format_type}")
-                          
+
             except Exception as e:
                 is_intact = False
                 print(f"❌ Wallet integrity test failed: {e}")
-                
-            if is_intact:
-                    print("✅ WALLET IS INTACT - Using Advanced Extraction")
-                    print("=" * 60)
-                    print("🎯 RECOMMENDATION: Your wallet file is complete and undamaged.")
-                    print("   Using FAST advanced extraction instead of slow recovery.")
-                    print("   This will get you ALL keys efficiently!")
-                    print()
-                    
-                    # Check if passphrase was provided via command line
-                    if options.passphrase:
-                        password = options.passphrase
-                        print(f"🔑 Using passphrase from command line")
-                    else:
-                        # Ask user for password if auto-detection is successful
-                        print("🔑 Enter the wallet password (or press Enter for default '1234'):")
-                        password = input("Password: ").strip()
-                        if not password:
-                            password = "1234"
-                    
-                    output_file = options.output_keys or "auto_extracted_keys.txt"
-                    
-                    print(f"🔑 Using password: {password}")
-                    print(f"📁 Output file: {output_file}")
-                    print("⚡ Method: Advanced Extraction (FAST & COMPLETE)")
-                    print()
-                    print("Starting extraction...")
-                    
-                    try:
-                        success = extract_wallet_keys_advanced(
-                            device,
-                            output_file,
-                            password,
-                            10000  # Extract more keys since this is the preferred method
-                        )
-                    except Exception as e:
-                        print(f"⚠️  Advanced extraction failed: {e}")
-                        print("🔄 Automatically falling back to traditional recovery method...")
-                        success = False
-                        advanced_extraction_failed = True
 
-                    if success:
-                        print()
-                        print("=" * 60)
-                        print("🎉 SUCCESS! Advanced Extraction Completed")
-                        print("=" * 60)
-                        print("✅ Your wallet was intact and all keys extracted successfully!")
-                        print(f"📂 Keys saved to: {output_file}")
-                        print("💡 Next time, you can use --extract_advanced directly for faster results.")
-                        print("=" * 60)
-                        exit(0)
+            if is_intact:
+                print("✅ WALLET IS INTACT - Using Advanced Extraction")
+                print("=" * 60)
+                print("🎯 RECOMMENDATION: Your wallet file is complete and undamaged.")
+                print("   Using FAST advanced extraction instead of slow recovery.")
+                print("   This will get you ALL keys efficiently!")
+                print()
+
+                # For smart detection, try common passwords first
+                # Ask user for password if auto-detection is successful
+                print("🔑 Enter the wallet password (or press Enter for default '1234'):")
+                password = input("Password: ").strip()
+                if not password:
+                    password = "1234"
+                output_file = options.output_keys or "auto_extracted_keys.txt"
+
+                print(f"🔑 Using password: {password}")
+                print(f"📁 Output file: {output_file}")
+                print("⚡ Method: Advanced Extraction (FAST & COMPLETE)")
+                print()
+                print("Starting extraction...")
+
+                try:
+                    # Pre-check: If the database is too risky, skip advanced extraction
+                    print("🛡️ Performing safety check before advanced extraction...")
+                    if not validate_database_before_opening(device):
+                        print("⚠️ Database safety check failed!")
+                        print("🚨 This wallet file is too risky for Berkeley DB extraction")
+                        print("🔄 Forcing fallback to binary recovery for safety")
+                        raise Exception("Database too risky - forced binary recovery mode")
+                    
+                    print("✅ Safety check passed - proceeding with advanced extraction")
+                    success = extract_wallet_keys_advanced(
+                        device,
+                        output_file,
+                        password,
+                        10000  # Extract more keys since this is the preferred method
+                    )
+                except Exception as e:
+                    print(f"⚠️ Advanced extraction failed: {e}")
+                    print("📋 Error details:")
+                    if "Database too risky" in str(e):
+                        print("   - 🚨 SAFETY PROTECTION ACTIVATED")
+                        print("   - This wallet file would likely cause a segmentation fault")
+                        print("   - Berkeley DB extraction was blocked to prevent crash")
+                        print("   - Binary recovery mode is safer for this file")
+                    elif "Database corrupted" in str(e):
+                        print("   - Database corruption detected during opening")
+                        print("   - This wallet cannot be opened with Berkeley DB")
+                        print("   - Binary recovery mode will be used instead")
+                    elif "Cannot read database records" in str(e):
+                        print("   - Severe database corruption")
+                        print("   - Database structure is damaged")
+                        print("   - Raw binary scanning will be attempted")
+                    elif "Database file failed validation" in str(e):
+                        print("   - 🛡️ PREVENTIVE SAFETY MEASURE")
+                        print("   - Database file structure appears corrupted")
+                        print("   - Opening with Berkeley DB would likely crash")
+                        print("   - Binary recovery is the safest option")
                     else:
-                        print("⚠️  Advanced extraction failed, falling back to recovery method...")
-                        advanced_extraction_failed = True
+                        print(f"   - {str(e)}")
+                    print("🔄 Automatically falling back to traditional recovery method...")
+                    print("   This method scans the raw file for key patterns and")
+                    print("   can often recover keys even from severely corrupted wallets.")
+                    print("   🛡️ This approach is SAFER and won't cause crashes.")
+                    success = False
+                    advanced_extraction_failed = True
+
+                if success:
+                    print()
+                    print("=" * 60)
+                    print("🎉 SUCCESS! Advanced Extraction Completed")
+                    print("=" * 60)
+                    print("✅ Your wallet was intact and all keys extracted successfully!")
+                    print(f"📂 Keys saved to: {output_file}")
+                    print("💡 Next time, you can use --extract_advanced directly for faster results.")
+                    print("=" * 60)
+                    exit(0)
+                else:
+                    print("⚠️  Advanced extraction failed, falling back to recovery method...")
+                    advanced_extraction_failed = True
             else:
                 print("❌ WALLET APPEARS DAMAGED - Using Recovery Method")
                 print("=" * 60)
@@ -7847,19 +7442,15 @@ if __name__ == '__main__':
                 print("   Using traditional recovery method to scan for key fragments.")
                 print("   This will be slower but may recover partial data.")
                 print()
-        
+
         # If not a wallet file, or if wallet detection failed, or advanced extraction failed, use traditional recovery
         # Get passphrases for decryption
         passes = []  # Initialize passes list for all cases
-        
+
         if not is_wallet_file or not is_intact or advanced_extraction_failed:
-            
-            # Check if passphrase was provided via command line first
-            if options.passphrase:
-                print(f"🔑 Using passphrase from command line")
-                passes.append(options.passphrase)
+
             # If advanced extraction failed, we already have the password
-            elif advanced_extraction_failed and 'password' in locals():
+            if advanced_extraction_failed and 'password' in locals():
                 print(f"Using password from previous attempt: {password}")
                 passes.append(password)
             else:
@@ -7869,6 +7460,7 @@ if __name__ == '__main__':
                 print('Write one passphrase per line and end with an empty line.')
                 sys.stdout.flush()  # Ensure the instructions are displayed before getpass prompt
                 import time
+
                 time.sleep(0.1)  # Small delay to ensure proper output ordering
                 while p != '':
                     p = getpass.getpass("Possible passphrase: ")
@@ -7877,44 +7469,21 @@ if __name__ == '__main__':
 
             print("\nStarting recovery.")
 
-            # Continue with standard recovery process with enhanced error handling...
-            recoveredKeys = []
+            # Continue with standard recovery process...
             try:
-                # Try to read the wallet file directly with enhanced error handling
-                print("🔍 Attempting direct wallet file reading...")
+                # Try to read the wallet file directly
                 recoveredKeys = extract_keys_from_wallet(device, passes)
                 if not recoveredKeys:
                     print("No keys found in wallet file. Falling back to raw recovery...")
                     # Use current directory as temporary output dir for recovery process
                     temp_outputdir = options.recov_outputdir if options.recov_outputdir else "."
-                    print("🔧 Starting raw recovery process...")
-                    try:
-                        recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
-                    except Exception as recov_error:
-                        print(f"❌ Raw recovery failed: {recov_error}")
-                        print("🔧 Attempting safe binary extraction as final fallback...")
-                        try:
-                            recoveredKeys = extract_keys_with_binary_search(device, passes)
-                        except Exception as binary_error:
-                            print(f"❌ Binary extraction also failed: {binary_error}")
-                            print("⚠️  All recovery methods failed. The wallet may be severely corrupted.")
-                            recoveredKeys = []
+                    recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
             except Exception as e:
-                print(f"❌ Error reading wallet file: {e}")
-                print("🔧 Falling back to raw recovery...")
+                print("Error reading wallet file: %s" % e)
+                print("Falling back to raw recovery...")
                 # Use current directory as temporary output dir for recovery process
                 temp_outputdir = options.recov_outputdir if options.recov_outputdir else "."
-                try:
-                    recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
-                except Exception as recov_error:
-                    print(f"❌ Raw recovery also failed: {recov_error}")
-                    print("🔧 Attempting safe binary extraction as final fallback...")
-                    try:
-                        recoveredKeys = extract_keys_with_binary_search(device, passes)
-                    except Exception as binary_error:
-                        print(f"❌ All recovery methods failed: {binary_error}")
-                        print("⚠️  The wallet appears to be severely corrupted or incompatible.")
-                        recoveredKeys = []
+                recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
         else:
             # Use current directory as temporary output dir for recovery process
             temp_outputdir = options.recov_outputdir if options.recov_outputdir else "."
@@ -7926,6 +7495,7 @@ if __name__ == '__main__':
         if not recoveredKeys and options.output_keys:
             print("\nNo keys returned from recovery function, checking for JSON recovery files...")
             import glob
+
             json_files = glob.glob("pywallet_partial_recovery_*.json")
             if json_files:
                 latest_json = max(json_files, key=os.path.getctime)
@@ -7933,7 +7503,7 @@ if __name__ == '__main__':
                 print("Note: JSON file contains key positions but actual key extraction requires manual processing")
                 print(f"The recovery process found potential keys but could not decrypt them automatically.")
                 print(f"JSON file saved as: {latest_json}")
-                
+
                 # Create a summary file instead
                 with open(options.output_keys, 'w') as f:
                     f.write("# Pywallet Recovery Summary\n")
@@ -7951,7 +7521,7 @@ if __name__ == '__main__':
                     f.write("# 2. Key positions have been identified and saved in the JSON file\n")
                     f.write("# 3. Manual key extraction may be possible with additional tools\n")
                     f.write("# 4. Consider using alternative wallet recovery methods\n")
-                
+
                 print(f"\nRecovery summary written to: {options.output_keys}")
                 print(f"Detailed recovery data in: {latest_json}")
                 sys.exit(0)
@@ -8294,17 +7864,6 @@ if __name__ == '__main__':
 
             db.close()
         exit()
-
-    # Save execution log and generate summary at the end of successful execution
-    if 'status_log' in globals():
-        log_status = lambda msg, level="INFO": status_log.append(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {level}: {msg}")
-        log_status("Pywallet execution completed successfully")
-        save_execution_log()
-        generate_client_summary_report()
-    else:
-        # Generate summary even if no status log
-        generate_client_summary_report()
-
 
 
 

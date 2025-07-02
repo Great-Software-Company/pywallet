@@ -50,3 +50,4 @@ CLIENT_FIXES_SUMMARY.md
 FINAL_CLIENT_REPORT.md
 test_client_fixes.py
 verify_fixes.py
+SEGFAULT_FIXES.md
