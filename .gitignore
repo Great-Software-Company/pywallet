@@ -41,3 +41,12 @@ wallet_key_extractor.py
 INTEGRATION_COMPLETE.md
 extraction_summary.md
 ENHANCED_ERROR_HANDLING.md
+clean_wallets
+ClientError
+FIXES_SUMMARY.md
+fixed_wallet_extractor.py
+test_fixes.py
+CLIENT_FIXES_SUMMARY.md
+FINAL_CLIENT_REPORT.md
+test_client_fixes.py
+verify_fixes.py

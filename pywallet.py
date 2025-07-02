@@ -3360,6 +3360,15 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
             wallet_data = f.read()
 
         print(f"Read {len(wallet_data)} bytes from wallet file")
+        
+        # Safety check for file size
+        if len(wallet_data) == 0:
+            print("❌ Wallet file is empty")
+            return []
+        
+        if len(wallet_data) > 100 * 1024 * 1024:  # 100MB limit
+            print("⚠️  Large wallet file detected, limiting scan to first 100MB")
+            wallet_data = wallet_data[:100 * 1024 * 1024]
 
         # Find master key
         mkey_pos = wallet_data.find(patterns['mkey'])
@@ -3417,19 +3426,48 @@ def extract_keys_with_binary_search(wallet_file, passphrases):
 
                             # Try to decrypt master key with extra safety
                             try:
-                                result = crypter.SetKeyFromPassphrase(passphrase, salt, iterations, 0)
-                                if result == 0:
-                                    print("Unsupported derivation method")
+                                # Validate inputs before calling crypter
+                                if not passphrase or len(passphrase) == 0:
+                                    print("Empty passphrase, skipping")
                                     continue
+                                
+                                if not salt or len(salt) == 0:
+                                    print("Invalid salt, skipping")
+                                    continue
+                                
+                                if not encrypted_master_key or len(encrypted_master_key) == 0:
+                                    print("Invalid encrypted master key, skipping")
+                                    continue
+                                
+                                # Use timeout to prevent hanging
+                                import signal
+                                
+                                def timeout_handler(signum, frame):
+                                    raise TimeoutError("Crypter operation timed out")
+                                
+                                signal.signal(signal.SIGALRM, timeout_handler)
+                                signal.alarm(30)  # 30 second timeout
+                                
+                                try:
+                                    result = crypter.SetKeyFromPassphrase(passphrase, salt, iterations, 0)
+                                    if result == 0:
+                                        print("Unsupported derivation method")
+                                        continue
 
-                                # Decrypt the master key
-                                master_key = crypter.Decrypt(encrypted_master_key)
-                                if master_key and len(master_key) > 0:
-                                    print(f"✅ Successfully decrypted master key with passphrase!")
-                                    master_key_decrypted = True
-                                    break
-                                else:
-                                    print("Master key decryption returned empty result")
+                                    # Decrypt the master key
+                                    master_key = crypter.Decrypt(encrypted_master_key)
+                                    if master_key and len(master_key) > 0:
+                                        print(f"✅ Successfully decrypted master key with passphrase!")
+                                        master_key_decrypted = True
+                                        break
+                                    else:
+                                        print("Master key decryption returned empty result")
+                                finally:
+                                    signal.alarm(0)  # Cancel timeout
+                                    
+                            except TimeoutError:
+                                print("Crypter operation timed out - possible segmentation fault prevented")
+                                continue
                             except Exception as decrypt_error:
                                 print(f"Decryption attempt failed: {decrypt_error}")
                                 continue
@@ -3943,8 +3981,14 @@ def open_wallet(db_env, walletfile, writable=False, DB_RDONLY_param=None, DB_BTR
     print("[CRITICAL] All direct database open attempts failed")
     logging.error("Couldn't open wallet.dat/main. Database may be corrupted.")
     
+    # Clean up the database object before raising exception
+    try:
+        db.close()
+    except Exception as cleanup_error:
+        print(f"[DEBUG] Error during cleanup: {str(cleanup_error)}")
+    
     # Don't exit immediately - let the calling function handle the fallback
-    raise Exception("Database open failed - wallet may be corrupted")
+    raise Exception("Database open failed - wallet may be corrupted or incompatible with current Berkeley DB version")
 
     return None
 
@@ -7589,32 +7633,63 @@ if __name__ == '__main__':
         if len(device) in [2, 3] and device[1] == ':':
             device = "\\\\.\\" + device
 
-        # 🧠 SMART UNIVERSAL RECOVERY: Try targeted extraction first for wallet files
+        # 🧠 SMART UNIVERSAL RECOVERY: Try proper wallet analysis first for wallet files
         if os.path.isfile(device) and device.lower().endswith('.dat'):
             print("🎯 SMART UNIVERSAL RECOVERY - Analyzing wallet file...")
             print(f"🔍 Target: {device}")
             print("=" * 60)
-            print("🚀 Step 1: Attempting targeted extraction (fast method)...")
+            print("🚀 Step 1: Detecting wallet encryption status...")
             
             output_file = options.output_keys or "recovery_results.txt"
             
-            # Try targeted extraction first
+            # First, detect if wallet is encrypted
             try:
-                success = targeted_key_extraction(device, output_file)
+                # Import the fixed wallet extractor for proper encryption detection
+                import sys
+                import os
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                from fixed_wallet_extractor import FixedWalletExtractor
                 
-                if success:
-                    print("\n🎉 SUCCESS! Targeted extraction completed!")
-                    print(f"📂 Keys saved to: {output_file}")
-                    print("✅ UNIFIED COMMAND SUCCESS: Wallet processed with fast method!")
-                    exit(0)
+                # Create extractor instance
+                extractor = FixedWalletExtractor(device, output_file)
+                
+                # Detect encryption status
+                is_encrypted, mkey_count, ckey_count, key_count = extractor.detect_wallet_encryption()
+                
+                if is_encrypted:
+                    print(f"\n🔒 ENCRYPTED WALLET DETECTED")
+                    print(f"   Master keys: {mkey_count}, Encrypted keys: {ckey_count}")
+                    print("   This wallet requires a passphrase to decrypt the private keys.")
+                    print("\n🔄 Step 2: Falling back to traditional recovery method with passphrase prompt...")
+                    print("=" * 60)
+                    # Continue with standard recovery below which will prompt for passphrase
+                    
+                elif is_encrypted is False:
+                    print(f"\n🔓 UNENCRYPTED WALLET DETECTED")
+                    print(f"   Unencrypted keys: {key_count}")
+                    print("🚀 Step 2: Attempting safe extraction (fast method)...")
+                    
+                    # Try the fixed extractor for unencrypted wallets
+                    success = extractor.extract_keys()
+                    
+                    if success:
+                        print("\n🎉 SUCCESS! Safe extraction completed!")
+                        print(f"📂 Keys saved to: {output_file}")
+                        print("✅ UNIFIED COMMAND SUCCESS: Wallet processed with safe method!")
+                        exit(0)
+                    else:
+                        print("\n⚠️  Safe extraction didn't find keys or failed")
+                        print("🔄 Step 3: Falling back to traditional recovery method...")
+                        print("=" * 60)
+                        # Continue with standard recovery below
                 else:
-                    print("\n⚠️  Targeted extraction didn't find keys or failed")
+                    print(f"\n❓ WALLET ENCRYPTION STATUS UNCLEAR")
                     print("🔄 Step 2: Falling back to traditional recovery method...")
                     print("=" * 60)
                     # Continue with standard recovery below
                     
             except Exception as e:
-                print(f"\n⚠️  Targeted extraction encountered an error: {str(e)}")
+                print(f"\n⚠️  Wallet analysis encountered an error: {str(e)}")
                 print("🔄 Step 2: Falling back to traditional recovery method...")
                 print("=" * 60)
                 # Continue with standard recovery below
@@ -7720,12 +7795,17 @@ if __name__ == '__main__':
                     print("   This will get you ALL keys efficiently!")
                     print()
                     
-                    # For smart detection, try common passwords first
-                    # Ask user for password if auto-detection is successful
-                    print("🔑 Enter the wallet password (or press Enter for default '1234'):")
-                    password = input("Password: ").strip()
-                    if not password:
-                        password = "1234"
+                    # Check if passphrase was provided via command line
+                    if options.passphrase:
+                        password = options.passphrase
+                        print(f"🔑 Using passphrase from command line")
+                    else:
+                        # Ask user for password if auto-detection is successful
+                        print("🔑 Enter the wallet password (or press Enter for default '1234'):")
+                        password = input("Password: ").strip()
+                        if not password:
+                            password = "1234"
+                    
                     output_file = options.output_keys or "auto_extracted_keys.txt"
                     
                     print(f"🔑 Using password: {password}")
@@ -7774,8 +7854,12 @@ if __name__ == '__main__':
         
         if not is_wallet_file or not is_intact or advanced_extraction_failed:
             
+            # Check if passphrase was provided via command line first
+            if options.passphrase:
+                print(f"🔑 Using passphrase from command line")
+                passes.append(options.passphrase)
             # If advanced extraction failed, we already have the password
-            if advanced_extraction_failed and 'password' in locals():
+            elif advanced_extraction_failed and 'password' in locals():
                 print(f"Using password from previous attempt: {password}")
                 passes.append(password)
             else:
@@ -7793,21 +7877,44 @@ if __name__ == '__main__':
 
             print("\nStarting recovery.")
 
-            # Continue with standard recovery process...
+            # Continue with standard recovery process with enhanced error handling...
+            recoveredKeys = []
             try:
-                # Try to read the wallet file directly
+                # Try to read the wallet file directly with enhanced error handling
+                print("🔍 Attempting direct wallet file reading...")
                 recoveredKeys = extract_keys_from_wallet(device, passes)
                 if not recoveredKeys:
                     print("No keys found in wallet file. Falling back to raw recovery...")
                     # Use current directory as temporary output dir for recovery process
                     temp_outputdir = options.recov_outputdir if options.recov_outputdir else "."
-                    recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
+                    print("🔧 Starting raw recovery process...")
+                    try:
+                        recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
+                    except Exception as recov_error:
+                        print(f"❌ Raw recovery failed: {recov_error}")
+                        print("🔧 Attempting safe binary extraction as final fallback...")
+                        try:
+                            recoveredKeys = extract_keys_with_binary_search(device, passes)
+                        except Exception as binary_error:
+                            print(f"❌ Binary extraction also failed: {binary_error}")
+                            print("⚠️  All recovery methods failed. The wallet may be severely corrupted.")
+                            recoveredKeys = []
             except Exception as e:
-                print("Error reading wallet file: %s" % e)
-                print("Falling back to raw recovery...")
+                print(f"❌ Error reading wallet file: {e}")
+                print("🔧 Falling back to raw recovery...")
                 # Use current directory as temporary output dir for recovery process
                 temp_outputdir = options.recov_outputdir if options.recov_outputdir else "."
-                recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
+                try:
+                    recoveredKeys = recov(device, passes, size, 10240, temp_outputdir, options.output_keys)
+                except Exception as recov_error:
+                    print(f"❌ Raw recovery also failed: {recov_error}")
+                    print("🔧 Attempting safe binary extraction as final fallback...")
+                    try:
+                        recoveredKeys = extract_keys_with_binary_search(device, passes)
+                    except Exception as binary_error:
+                        print(f"❌ All recovery methods failed: {binary_error}")
+                        print("⚠️  The wallet appears to be severely corrupted or incompatible.")
+                        recoveredKeys = []
         else:
             # Use current directory as temporary output dir for recovery process
             temp_outputdir = options.recov_outputdir if options.recov_outputdir else "."

@@ -116,7 +116,17 @@ else
     echo "✓ Installed pycryptodome"
 fi
 
-echo "✓ All dependencies installed successfully (bsddb3, cryptographic libraries)"
+# Install ecdsa for elliptic curve operations
+echo "Installing ecdsa (elliptic curve cryptography)..."
+pip install ecdsa
+if [ $? -ne 0 ]; then
+    echo "Warning: Failed to install ecdsa"
+    echo "Some wallet operations may not work properly."
+else
+    echo "✓ Installed ecdsa"
+fi
+
+echo "✓ All dependencies installed successfully (bsddb3, cryptographic libraries, ecdsa)"
 
 # Test the installation
 echo "Testing installation..."
