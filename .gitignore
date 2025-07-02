@@ -40,3 +40,4 @@ targeted_key_extractor.py
 wallet_key_extractor.py
 INTEGRATION_COMPLETE.md
 extraction_summary.md
+ENHANCED_ERROR_HANDLING.md
