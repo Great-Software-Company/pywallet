@@ -1505,16 +1505,41 @@ class Crypter_ssl(object):
         try:
             vKeyData_bytes = str_to_bytes(vKeyData)
             vSalt_bytes = str_to_bytes(vSalt)
+            
+            # Check for OpenSSL key length limits to prevent EVP_MAX_KEY_LENGTH error
+            if len(vKeyData_bytes) > 1024:  # OpenSSL typical max key length
+                print(f"⚠️ Passphrase too long ({len(vKeyData_bytes)} bytes), truncating to 1024 bytes")
+                vKeyData_bytes = vKeyData_bytes[:1024]
+            
+            if len(vSalt_bytes) > 64:  # Reasonable salt length limit
+                print(f"⚠️ Salt too long ({len(vSalt_bytes)} bytes), truncating to 64 bytes")
+                vSalt_bytes = vSalt_bytes[:64]
+            
             strKeyData = ctypes.create_string_buffer(vKeyData_bytes)
             chSalt = ctypes.create_string_buffer(vSalt_bytes)
-            return ssl.EVP_BytesToKey(ssl.EVP_aes_256_cbc(), ssl.EVP_sha512(), chSalt, strKeyData,
+            
+            # Call OpenSSL function with length validation
+            result = ssl.EVP_BytesToKey(ssl.EVP_aes_256_cbc(), ssl.EVP_sha512(), chSalt, strKeyData,
                                       len(vKeyData_bytes), nDerivIterations, ctypes.byref(self.chKey),
                                       ctypes.byref(self.chIV))
+            return result
         except Exception as e:
-            print(f"Error in SetKeyFromPassphrase: {str(e)}")
-            print(f"vKeyData type: {type(vKeyData)}, value: {vKeyData}")
-            print(f"vSalt type: {type(vSalt)}, value: {vSalt}")
-            return 0
+            print(f"❌ Error in OpenSSL SetKeyFromPassphrase: {str(e)}")
+            print(f"   vKeyData length: {len(vKeyData) if vKeyData else 0}")
+            print(f"   vSalt length: {len(vSalt) if vSalt else 0}")
+            print("   Falling back to pure Python implementation...")
+            
+            # Fallback to manual key derivation if OpenSSL fails
+            try:
+                data = str_to_bytes(vKeyData) + str_to_bytes(vSalt)
+                for i in range(nDerivIterations):
+                    data = hashlib.sha512(data).digest()
+                self.SetKey(data[0:32])
+                self.SetIV(data[32:32 + 16])
+                return len(data)
+            except Exception as fallback_e:
+                print(f"❌ Fallback key derivation also failed: {str(fallback_e)}")
+                return 0
 
     def SetKey(self, key):
         self.chKey = ctypes.create_string_buffer(str_to_bytes(key))
@@ -1589,19 +1614,29 @@ class Crypter_pure(object):
 crypter = None
 if crypter is None:
     try:
+        # Try pycryptodome first (preferred)
         from pycryptodome.Cipher import AES
-
         crypter = Crypter_pycrypto()
+        print("✅ Using pycryptodome for encryption (recommended)")
     except ImportError:
         try:
-            import ctypes
-            import ctypes.util
-
-            ssl = ctypes.cdll.LoadLibrary(ctypes.util.find_library('ssl') or 'libeay32')
-            crypter = Crypter_ssl()
-        except:
-            crypter = Crypter_pure()
-            logging.warning("pycrypto or libssl not found, decryption may be slow")
+            # Try pycrypto (older version)
+            from Crypto.Cipher import AES
+            crypter = Crypter_pycrypto()
+            print("✅ Using pycrypto for encryption")
+        except ImportError:
+            try:
+                # Fall back to OpenSSL with enhanced error handling
+                import ctypes
+                import ctypes.util
+                ssl = ctypes.cdll.LoadLibrary(ctypes.util.find_library('ssl') or 'libeay32')
+                crypter = Crypter_ssl()
+                print("⚠️ Using OpenSSL for encryption (may have compatibility issues)")
+            except:
+                # Last resort: pure Python implementation
+                crypter = Crypter_pure()
+                print("⚠️ Using pure Python encryption (slow but safe)")
+                logging.warning("pycrypto or libssl not found, decryption may be slow")
 
 
 ##########################################
@@ -7484,18 +7519,82 @@ if __name__ == '__main__':
                 print(f"Using password from previous attempt: {password}")
                 passes.append(password)
             else:
-                p = ' '
-                print('\nEnter the possible passphrases used in your deleted wallets.')
-                print("Don't forget that more passphrases = more time to test the possibilities.")
-                print('Write one passphrase per line and end with an empty line.')
-                sys.stdout.flush()  # Ensure the instructions are displayed before getpass prompt
-                import time
+                # Check if wallet is encrypted before asking for passwords
+                wallet_is_encrypted = False
+                if is_wallet_file and os.path.exists(device):
+                    try:
+                        with FixedWalletExtractor(device, "") as extractor:
+                            is_encrypted, mkey_count, ckey_count, key_count = extractor.detect_wallet_encryption()
+                            if is_encrypted:
+                                wallet_is_encrypted = True
+                                print()
+                                print("🔒 ENCRYPTED WALLET DETECTED")
+                                print("=" * 60)
+                                print("This wallet contains encrypted private keys.")
+                                print("You need to provide the wallet password to decrypt them.")
+                                print()
+                                
+                                # Ask for the specific wallet password
+                                wallet_password = getpass.getpass("🔑 Enter the wallet password: ")
+                                if wallet_password:
+                                    passes.append(wallet_password)
+                                    print("✅ Password received, will attempt decryption...")
+                                else:
+                                    print("⚠️  No password provided - will attempt recovery without decryption")
+                            elif is_encrypted is False:
+                                print()
+                                print("🔓 UNENCRYPTED WALLET DETECTED")
+                                print("=" * 60)
+                                print("This wallet contains unencrypted private keys.")
+                                print("No password is needed for extraction.")
+                                print()
+                            else:
+                                print()
+                                print("❓ WALLET ENCRYPTION STATUS UNCLEAR")
+                                print("=" * 60)
+                                print("Cannot determine if wallet is encrypted.")
+                                print("Will ask for possible passwords just in case...")
+                                wallet_is_encrypted = True  # Assume encrypted to be safe
+                    except Exception as e:
+                        print(f"⚠️  Could not detect wallet encryption: {e}")
+                        print("Will ask for possible passwords just in case...")
+                        wallet_is_encrypted = True  # Assume encrypted to be safe
 
-                time.sleep(0.1)  # Small delay to ensure proper output ordering
-                while p != '':
-                    p = getpass.getpass("Possible passphrase: ")
-                    if p != '':
-                        passes.append(p)
+                # If we couldn't determine encryption status or it's not a wallet file, 
+                # use the generic passphrase collection method
+                # Skip passphrase collection if wallet is confirmed unencrypted
+                if not is_wallet_file or (wallet_is_encrypted and not passes):
+                    # Special case: if wallet is confirmed unencrypted, skip passphrase collection
+                    if is_wallet_file and is_encrypted is False:
+                        print("🔓 Skipping passphrase collection for unencrypted wallet")
+                        passes = []  # Ensure empty passphrase list
+                    else:
+                        p = ' '
+                        if wallet_is_encrypted:
+                            print('\nIf the password above was incorrect, you can try additional passphrases:')
+                        else:
+                            print('\nEnter the possible passphrases used in your deleted wallets.')
+                        print("Don't forget that more passphrases = more time to test the possibilities.")
+                        print('Write one passphrase per line and end with an empty line.')
+                        sys.stdout.flush()  # Ensure the instructions are displayed before getpass prompt
+                        import time
+
+                        time.sleep(0.1)  # Small delay to ensure proper output ordering
+                        while p != '':
+                            try:
+                                p = getpass.getpass("Possible passphrase: ")
+                                if p != '':
+                                    # Validate passphrase length to prevent OpenSSL errors
+                                    if len(p.encode('utf-8')) > 1024:
+                                        print(f"⚠️ Passphrase too long ({len(p.encode('utf-8'))} bytes), truncating to 1024 bytes")
+                                        p = p.encode('utf-8')[:1024].decode('utf-8', errors='ignore')
+                                    passes.append(p)
+                            except KeyboardInterrupt:
+                                print("\n⚠️ Passphrase input interrupted by user")
+                                break
+                            except Exception as e:
+                                print(f"⚠️ Error reading passphrase: {e}")
+                                break
 
             print("\nStarting recovery.")
 
