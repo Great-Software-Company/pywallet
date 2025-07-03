@@ -72,6 +72,40 @@ sys.excepthook = global_exception_handler
 
 # Add signal handler for segmentation faults
 import signal
+import atexit
+
+# Flag to track if we're in signal handling to avoid recursive calls
+_in_signal_handler = False
+
+def safe_save_keys_signal(signal_name):
+    """Safely save keys during signal handling with minimal I/O"""
+    global _in_signal_handler
+    if _in_signal_handler:
+        return False
+    
+    _in_signal_handler = True
+    try:
+        if 'recoveredKeys' in globals() and recoveredKeys:
+            if 'options' in globals() and hasattr(options, 'output_keys') and options.output_keys:
+                # Use a simple, atomic write approach
+                backup_file = options.output_keys + ".emergency"
+                with open(backup_file, 'w') as f:
+                    f.write(f"# Emergency save after {signal_name}\n")
+                    f.write(f"# Keys: {len(recoveredKeys)}\n")
+                    for i, sec in enumerate(recoveredKeys):
+                        try:
+                            if hasattr(sec, 'hex'):
+                                f.write(f"{sec.hex()}\n")
+                            else:
+                                f.write(f"{binascii.hexlify(sec).decode('ascii')}\n")
+                        except:
+                            f.write(f"# Error processing key {i}\n")
+                return True
+    except:
+        pass
+    finally:
+        _in_signal_handler = False
+    return False
 
 def signal_handler(signum, frame):
     """Handle segmentation faults and other signals gracefully"""
@@ -80,51 +114,47 @@ def signal_handler(signum, frame):
         signal.SIGFPE: "SIGFPE (Floating Point Exception)", 
         signal.SIGABRT: "SIGABRT (Abort)",
         signal.SIGTERM: "SIGTERM (Termination)",
-        signal.SIGINT: "SIGINT (Interrupt)"
+        signal.SIGINT: "SIGINT (Interrupt)",
+        signal.SIGBUS: "SIGBUS (Bus Error)",
+        signal.SIGPIPE: "SIGPIPE (Broken Pipe)"
     }
     
     signal_name = signal_names.get(signum, f"Signal {signum}")
     
-    print(f"\n\n========== SIGNAL CAUGHT: {signal_name} ==========")
-    print("The program received a fatal signal and must exit.")
-    print("This often indicates:")
-    print("- Severe database corruption")
-    print("- Memory corruption in bsddb3 library")
-    print("- Incompatible wallet format")
-    print("=" * 50)
+    # Use write() for signal-safe output
+    error_msg = f"\n\n========== SIGNAL CAUGHT: {signal_name} ==========\n"
+    error_msg += "The program received a fatal signal and must exit.\n"
+    error_msg += "This often indicates:\n"
+    error_msg += "- Severe database corruption\n"
+    error_msg += "- Memory corruption in bsddb3 library\n"
+    error_msg += "- Incompatible wallet format\n"
+    error_msg += "=" * 50 + "\n"
     
-    # Try to save any recovered keys before exit
-    if 'recoveredKeys' in globals() and recoveredKeys:
-        try:
-            print(f"\nAttempting to save {len(recoveredKeys)} recovered keys before exit...")
-            if 'options' in globals() and hasattr(options, 'output_keys') and options.output_keys:
-                with open(options.output_keys, 'w') as f:
-                    f.write("# Recovered private keys (saved after signal)\n")
-                    f.write(f"# Signal received: {signal_name}\n")
-                    f.write(f"# Data extracted by: Pywallet {pywversion}\n\n")
-                    
-                    for i, sec in enumerate(recoveredKeys):
-                        try:
-                            sec_hex = binascii.hexlify(sec)
-                            if isinstance(sec_hex, bytes):
-                                sec_hex = sec_hex.decode('ascii')
-                            f.write(f"{sec_hex}\n")
-                        except:
-                            f.write(f"# Error processing key {i}\n")
-                            
-                print(f"✅ Saved keys to {options.output_keys}")
-        except Exception as save_error:
-            print(f"❌ Failed to save keys: {save_error}")
+    # Signal-safe output
+    os.write(2, error_msg.encode('utf-8'))  # stderr
     
-    print("\nRecommendation: Try using binary recovery mode instead of database extraction.")
-    print("=" * 50)
-    sys.exit(128 + signum)  # Standard exit code for signals
+    # Try to save keys (safer approach)
+    if safe_save_keys_signal(signal_name):
+        success_msg = "✅ Emergency key backup created\n"
+        os.write(2, success_msg.encode('utf-8'))
+    
+    recommendation = "\nRecommendation: Try using binary recovery mode instead of database extraction.\n"
+    recommendation += "=" * 50 + "\n"
+    os.write(2, recommendation.encode('utf-8'))
+    
+    # Force exit without cleanup to avoid further crashes
+    os._exit(128 + signum)  # Standard exit code for signals
 
 # Install signal handlers
 try:
     signal.signal(signal.SIGSEGV, signal_handler)
     signal.signal(signal.SIGFPE, signal_handler)
     signal.signal(signal.SIGABRT, signal_handler)
+    # Add additional signal handlers for better coverage
+    if hasattr(signal, 'SIGBUS'):
+        signal.signal(signal.SIGBUS, signal_handler)
+    if hasattr(signal, 'SIGPIPE'):
+        signal.signal(signal.SIGPIPE, signal_handler)
     print("✅ Signal handlers installed for crash protection")
 except Exception as e:
     print(f"⚠️ Could not install signal handlers: {e}")
