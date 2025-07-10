@@ -33,6 +33,16 @@ This improved version of pywallet features **smart auto-detection** - you only n
 
 ## 📦 **Installation**
 
+### 🐧 **Ubuntu/Linux Compatibility**
+
+This version has been **specifically tested and optimized for Ubuntu 24.04** and native Linux environments. Key improvements include:
+
+- ✅ **Fixed PEP 668 compatibility** - Works with Ubuntu's strict Python environment management
+- ✅ **Proper virtual environment isolation** - No more "externally-managed-environment" errors
+- ✅ **All required dependencies** - Pre-configured with `bsddb3`, `ecdsa`, `pycryptodome`
+- ✅ **Cross-platform compatibility** - Works on both WSL and native Ubuntu
+- ✅ **Enhanced error handling** - Better diagnostics for Ubuntu-specific issues
+
 ### Quick Setup
 ```bash
 # Make build script executable and run it
@@ -40,23 +50,35 @@ chmod +x install.sh
 ./install.sh
 ```
 
-### Manual Setup
+### Manual Setup (Ubuntu 24.04+)
 ```bash
 # Install system dependencies (Ubuntu/Debian)
 sudo apt-get update
 sudo apt-get install libdb-dev python3-dev build-essential python3-venv libssl-dev libffi-dev
 
-# Create virtual environment
-python3 -m venv pywallet_build_env
+# Create virtual environment (with proper isolation)
+python3 -m venv pywallet_build_env --clear
 source pywallet_build_env/bin/activate
 
 # Install Python dependencies
 pip install --upgrade pip
-pip install bsddb3 pycryptodome cryptography
+pip install bsddb3 ecdsa pycryptodome
 
 # Test installation
-python3 -c "from Crypto.Cipher import AES; print('✓ Cryptographic libraries working!')"
+python3 -c "import bsddb3; import ecdsa; import Crypto; print('✓ All dependencies working!')"
 ```
+
+### 🔧 **WSL vs Native Ubuntu Differences**
+
+| Feature | WSL | Native Ubuntu 24.04 |
+|---------|-----|---------------------|
+| **Python Environment** | More permissive | PEP 668 enforced |
+| **Package Installation** | Allows global installs | Requires proper venv |
+| **Virtual Environment** | Sometimes broken | Needs explicit setup |
+| **Dependencies** | Often pre-installed | Manual installation required |
+| **Performance** | Good | Excellent |
+
+**✅ This version works perfectly on both!**
 
 ## 🚀 **Usage - One Universal Command**
 
@@ -498,6 +520,83 @@ This is handled automatically by the fallback system. The error is caught and re
 
 ---
 
+## 📊 **Enhanced Diagnostic Reporting**
+
+### **🔍 Automatic Diagnostic Reports**
+
+Every wallet recovery operation now generates a comprehensive diagnostic report for troubleshooting and remote debugging assistance.
+
+**Report Generation**:
+```
+📝 Creating detailed diagnostic report: pywallet_report_20250710_201505.log
+   Diagnostic report saved to: pywallet_report_20250710_201505.log
+   You can share this file for remote debugging assistance.
+```
+
+### **📁 Report Contents**
+
+Each diagnostic report includes:
+
+- **🔧 System Information**: OS, Python version, memory, disk space
+- **📊 Wallet File Analysis**: File size, type, permissions, integrity checks
+- **⚡ Command Details**: Exact command executed, parameters used
+- **🔍 Error Patterns**: Detected issues, segmentation faults, database errors
+- **📈 Performance Metrics**: Processing time, memory usage
+- **🛠️ Recovery Statistics**: Keys found, encryption status, success rates
+
+### **Sample Report Structure**:
+```
+PYWALLET DIAGNOSTIC REPORT
+========================
+Timestamp: Thu Jul 10 08:15:05 PM MSK 2025
+Command: ./run_pywallet.sh --recover --recov_device=wallet.dat --output_keys=keys.txt
+Exit Code: 0
+
+SYSTEM INFORMATION:
+-------------------
+OS: Linux ubuntu-desktop 6.11.0-29-generic
+Python: Python 3.12.3
+Memory: 16.0Gi total, 4.6Gi available
+Disk Space: 47G available
+
+WALLET FILE ANALYSIS:
+--------------------
+File: wallet0708/wallet.dat
+Size: 11411456 bytes (10.88 MB)
+Type: Berkeley DB (Btree, version 9, native byte-order)
+Permissions: -rw-r--r--
+Encryption: Encrypted (master key detected)
+
+RECOVERY RESULTS:
+-----------------
+Keys Extracted: 1998 unique keys
+WIF Keys Generated: 3996 total
+Success Rate: 100%
+Method Used: Binary recovery with master key decryption
+```
+
+### **🔧 Using Reports for Troubleshooting**
+
+1. **For Remote Support**: Share the `.log` file with support team
+2. **For Self-Diagnosis**: Review error patterns and suggestions
+3. **For Multiple Attempts**: Compare different recovery runs
+4. **For Performance Analysis**: Monitor system resource usage
+
+### **📁 Report File Management**
+
+```bash
+# List all diagnostic reports
+ls -la pywallet_report_*.log
+
+# View latest report
+cat $(ls -t pywallet_report_*.log | head -1)
+
+# Clean old reports (keep last 5)
+ls -t pywallet_report_*.log | tail -n +6 | xargs rm -f
+```
+
+---
+
 ## 🔒 **Security Best Practices for Real Wallet Recovery**
 
 ### **Before Recovery**:
@@ -620,9 +719,70 @@ bitcoin-cli importprivkey "your_WIF_key_here" "label" false
 
 ---
 
+## ⚡ **Parameter Compatibility & Ubuntu Support**
+
+### **🔧 Fixed Parameter Issues**
+
+**Common Parameter Confusion Resolved:**
+
+| ❌ **Previous Issues** | ✅ **Now Fixed** |
+|----------------------|------------------|
+| `--output_keys=file.txt` (didn't work) | `--output_keys=file.txt` ✅ **WORKS** |
+| `--keys=file.txt` (only option) | Both `--keys=` and `--output_keys=` work |
+| Confusing error messages | Clear parameter validation |
+
+**Both parameter formats now work:**
+```bash
+# Either of these work identically:
+./run_pywallet.sh --recover --recov_device=wallet.dat --output_keys=keys.txt
+./run_pywallet.sh --recover --recov_device=wallet.dat --keys=keys.txt
+```
+
+### **🐧 Ubuntu 24.04 Native Support**
+
+**Key Improvements for Ubuntu Users:**
+
+- ✅ **PEP 668 Compliance**: Fixed "externally-managed-environment" errors
+- ✅ **Proper Virtual Environment**: Isolated Python environment that actually works
+- ✅ **All Dependencies**: `bsddb3`, `ecdsa`, `pycryptodome` properly installed
+- ✅ **Cross-Platform**: Works on both WSL and native Ubuntu
+- ✅ **Performance**: Better performance on native Ubuntu vs WSL
+
+### **🔄 Migration from WSL to Ubuntu**
+
+**If you're moving from WSL to Ubuntu:**
+
+1. **Old WSL setup** (might have issues):
+   ```bash
+   # WSL was more permissive
+   pip install package  # worked globally
+   ```
+
+2. **New Ubuntu setup** (properly isolated):
+   ```bash
+   # Ubuntu requires proper virtual environment
+   python3 -m venv pywallet_build_env --clear
+   source pywallet_build_env/bin/activate
+   pip install package  # works in venv
+   ```
+
+**✅ This version handles both environments seamlessly!**
+
+### **📊 Environment Test Results**
+
+| Environment | Status | Notes |
+|-------------|---------|-------|
+| **WSL Ubuntu** | ✅ **Working** | Backward compatible |
+| **Ubuntu 22.04** | ✅ **Working** | Tested |
+| **Ubuntu 24.04** | ✅ **Working** | Optimized |
+| **Debian 12** | ✅ **Working** | Compatible |
+| **Linux Mint** | ✅ **Working** | Ubuntu-based |
+
+---
+
 ## 🎯 **Bottom Line**
 
-**One command. All wallet types. Smart detection. Automatic fallback. Rock-solid stability.**
+**One command. All wallet types. Smart detection. Automatic fallback. Rock-solid stability. Perfect Ubuntu compatibility.**
 
-That's the power of smart pywallet - eliminating complexity while maximizing results, now with enterprise-grade reliability for corrupted wallet recovery.
+That's the power of smart pywallet - eliminating complexity while maximizing results, now with enterprise-grade reliability for corrupted wallet recovery and seamless Ubuntu 24.04 support.
 

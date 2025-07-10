@@ -266,9 +266,9 @@ create_error_log() {
     local exit_code="$3"
     local has_error="$4"
     
-    local error_log="pywallet_error_$(date +%Y%m%d_%H%M%S).log"
+    local error_log="pywallet_report_$(date +%Y%m%d_%H%M%S).log"
     
-    echo "📝 Creating detailed error log: $error_log"
+    echo "📝 Creating detailed diagnostic report: $error_log"
     
     {
         echo "PYWALLET ERROR REPORT"
@@ -330,7 +330,7 @@ create_error_log() {
         
     } > "$error_log"
     
-    echo "   Error log saved to: $error_log"
+    echo "   Diagnostic report saved to: $error_log"
     echo "   You can share this file for remote debugging assistance."
     echo ""
 }
